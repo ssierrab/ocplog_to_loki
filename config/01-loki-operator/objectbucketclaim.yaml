@@ -1,0 +1,10 @@
+# Optional: use when LokiStack storage is backed by OpenShift Data Foundation (ODF).
+# Create the ODF secret afterward with scripts/create-loki-odf-secret.sh
+apiVersion: objectbucket.io/v1alpha1
+kind: ObjectBucketClaim
+metadata:
+  name: loki-bucket-odf
+  namespace: openshift-logging
+spec:
+  generateBucketName: loki-bucket-odf
+  storageClassName: openshift-storage.noobaa.io

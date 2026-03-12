@@ -1,0 +1,2 @@
+# Do not commit real secrets
+config/02-openshift-logging/secret-external-loki.yaml

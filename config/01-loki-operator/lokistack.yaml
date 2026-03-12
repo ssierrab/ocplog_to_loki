@@ -1,0 +1,25 @@
+# Internal LokiStack – OCP 4.20, storage in ODF.
+# Deploy after Loki Operator is installed and ODF secret exists (ObjectBucketClaim + create-loki-odf-secret.sh).
+apiVersion: loki.grafana.com/v1
+kind: LokiStack
+metadata:
+  name: logging-loki
+  namespace: openshift-logging
+spec:
+  size: 1x.small
+  storage:
+    schemas:
+      - effectiveDate: "2023-10-15"
+        version: v13
+    secret:
+      name: logging-loki-odf
+      type: s3
+    tls:
+      caName: openshift-service-ca.crt
+  storageClassName: ocs-external-storagecluster-ceph-rbd
+  tenants:
+    mode: openshift-logging
+  limits:
+    global:
+      retention:
+        days: 7

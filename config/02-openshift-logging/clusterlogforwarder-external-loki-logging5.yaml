@@ -1,0 +1,33 @@
+# Forward logs to an EXTERNAL Loki instance (OpenShift Logging 5.x / logging.openshift.io).
+# For OCP 4.20 with default Logging 5.x. Use this if observability.openshift.io is not available.
+# 1. Create secret openshift-logging/loki-external-secret (see secret-external-loki.example.yaml).
+# 2. Set the URL below to your external Loki push endpoint.
+# 3. Apply this file.
+apiVersion: logging.openshift.io/v1
+kind: ClusterLogForwarder
+metadata:
+  name: instance
+  namespace: openshift-logging
+spec:
+  outputs:
+    - name: external-loki
+      type: loki
+      url: https://loki.example.com:3100/loki/api/v1/push
+      secret:
+        name: loki-external-secret
+  pipelines:
+    - name: application
+      inputRefs:
+        - application
+      outputRefs:
+        - external-loki
+    - name: infrastructure
+      inputRefs:
+        - infrastructure
+      outputRefs:
+        - external-loki
+    - name: audit
+      inputRefs:
+        - audit
+      outputRefs:
+        - external-loki
