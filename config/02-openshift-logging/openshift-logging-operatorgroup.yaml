@@ -1,4 +1,4 @@
-# For cluster where OpenShift Logging Operator runs. Used by cluster-logging subscription.
+# Used by cluster-logging subscription.
 apiVersion: operators.coreos.com/v1
 kind: OperatorGroup
 metadata:

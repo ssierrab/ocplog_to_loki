@@ -4,19 +4,13 @@
 CONFIG_DIR := config
 SCRIPTS_DIR := scripts
 
-# Prerequisites: apply only what each cluster needs (see README Step 1).
-# Loki prereqs: cluster where Loki runs (hub for external, spoke for internal).
-prereqs-loki:
-	oc apply -f $(CONFIG_DIR)/00a-loki/
-# Logging prereqs: cluster where Logging Operator runs (spoke in both scenarios).
-prereqs-logging:
-	oc apply -f $(CONFIG_DIR)/00b-logging/
-# Both (e.g. internal spoke).
-prereqs: prereqs-loki prereqs-logging
-
-# --- Loki Operator ---
+# --- Loki Operator (namespaces, OperatorGroup, subscription) ---
+LOKI_DIR := $(CONFIG_DIR)/01-loki-operator
 install-loki:
-	oc apply -f $(CONFIG_DIR)/01-loki-operator/loki-operator-subscription.yaml
+	oc apply -f $(LOKI_DIR)/openshift-operators-redhat-namespace.yaml
+	oc apply -f $(LOKI_DIR)/openshift-operators-redhat-operatorgroup.yaml
+	oc apply -f $(LOKI_DIR)/openshift-logging-namespace.yaml
+	oc apply -f $(LOKI_DIR)/loki-operator-subscription.yaml
 
 approve-loki:
 	@echo "Approving InstallPlans in openshift-operators-redhat..."
@@ -36,12 +30,17 @@ deploy-loki-secret:
 deploy-lokistack-cr:
 	oc apply -f $(CONFIG_DIR)/01-loki-operator/lokistack.yaml
 
-# --- OpenShift Logging Operator ---
+# --- OpenShift Logging Operator (namespace, OperatorGroup, subscription) ---
+LOGGING_DIR := $(CONFIG_DIR)/02-openshift-logging
 install-logging:
-	oc apply -f $(CONFIG_DIR)/02-openshift-logging/openshift-logging-operator-subscription.yaml
+	oc apply -f $(LOGGING_DIR)/openshift-logging-namespace.yaml
+	oc apply -f $(LOGGING_DIR)/openshift-logging-operatorgroup.yaml
+	oc apply -f $(LOGGING_DIR)/openshift-logging-operator-subscription.yaml
 
 install-logging-v6:
-	oc apply -f $(CONFIG_DIR)/02-openshift-logging/logging-v6-subscription.yaml
+	oc apply -f $(LOGGING_DIR)/openshift-logging-namespace.yaml
+	oc apply -f $(LOGGING_DIR)/openshift-logging-operatorgroup.yaml
+	oc apply -f $(LOGGING_DIR)/logging-v6-subscription.yaml
 
 approve-logging:
 	@echo "Approving InstallPlans in openshift-logging..."
@@ -82,6 +81,6 @@ verify:
 	@oc get csv -n openshift-operators 2>/dev/null | grep -E "NAME|cluster-observability" || true
 	@oc get uiplugin 2>/dev/null || true
 
-.PHONY: prereqs prereqs-loki prereqs-logging install-loki approve-loki deploy-lokistack deploy-loki-obc deploy-loki-secret deploy-lokistack-cr \
+.PHONY: install-loki approve-loki deploy-lokistack deploy-loki-obc deploy-loki-secret deploy-lokistack-cr \
 	install-logging install-logging-v6 approve-logging deploy-logforwarder deploy-logforwarder-external \
 	install-coo deploy-uiplugin verify

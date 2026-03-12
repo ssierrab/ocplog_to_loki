@@ -1,4 +1,4 @@
-# For cluster where OpenShift Logging Operator runs (spoke in both scenarios).
+# Cluster where OpenShift Logging Operator runs (spoke in both scenarios).
 apiVersion: v1
 kind: Namespace
 metadata:

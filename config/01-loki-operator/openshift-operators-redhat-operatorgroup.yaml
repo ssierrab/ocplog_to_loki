@@ -1,4 +1,4 @@
-# For cluster where Loki runs. Used by Loki Operator subscription.
+# Used by Loki Operator subscription.
 apiVersion: operators.coreos.com/v1
 kind: OperatorGroup
 metadata:

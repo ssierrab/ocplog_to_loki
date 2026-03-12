@@ -36,69 +36,15 @@ This guide supports **hub-and-spoke** topologies: Loki can run on the same clust
 ## Installation order (by scenario)
 
 **Internal (Loki on spoke):**  
-On the **spoke**: Prerequisites → Loki Operator → LokiStack (ODF) → OpenShift Logging Operator → ClusterLogForwarder (to LokiStack) → Cluster Observability Operator → UIPlugin.
+On the **spoke**: Loki Operator (namespaces, OperatorGroup, subscription) → LokiStack (ODF) → OpenShift Logging Operator → ClusterLogForwarder (to LokiStack) → Cluster Observability Operator → UIPlugin.
 
 **External (Loki on hub):**  
-1. On the **hub**: Prerequisites → Loki Operator → LokiStack (ODF). Optionally COO + UIPlugin for Observe → Logs on the hub.  
-2. On the **spoke**: Prerequisites → OpenShift Logging Operator only → ClusterLogForwarder (to hub Loki URL). Do **not** install Loki Operator or LokiStack on the spoke.
+1. On the **hub**: Loki Operator (namespaces, OperatorGroup, subscription) → LokiStack (ODF). Optionally COO + UIPlugin for Observe → Logs on the hub.  
+2. On the **spoke**: OpenShift Logging Operator (namespace, OperatorGroup, subscription) only → ClusterLogForwarder (to hub Loki URL). Do **not** install Loki Operator or LokiStack on the spoke.
 
 ---
 
-## Step 1: Prerequisites (split by role)
-
-Prerequisites are split so you only create what each cluster needs:
-
-| Prereq set | Contents | Apply where |
-|------------|----------|-------------|
-| **Loki** (00a-loki) | `openshift-operators-redhat` ns, **loki-operator** OperatorGroup, `openshift-logging` ns | Cluster where **Loki** runs: **hub** (external) or **spoke** (internal) |
-| **Logging** (00b-logging) | `openshift-logging` ns, **cluster-logging** OperatorGroup | Cluster where **OpenShift Logging Operator** runs: **spoke** (both scenarios) |
-
-- **External**: On the **hub** apply only **Loki** prereqs (no cluster-logging OperatorGroup on the hub). On the **spoke** apply only **Logging** prereqs (no loki-operator OperatorGroup on the spoke).
-- **Internal**: On the **spoke** apply **both** Loki and Logging prereqs.
-
-### Using the Makefile
-
-```bash
-# External: on hub
-make prereqs-loki
-
-# External: on spoke
-make prereqs-logging
-
-# Internal: on spoke (both)
-make prereqs-loki prereqs-logging
-# or
-make prereqs
-```
-
-### Using oc apply
-
-```bash
-# External hub
-oc apply -f config/00a-loki/
-
-# External spoke
-oc apply -f config/00b-logging/
-
-# Internal spoke (both)
-oc apply -f config/00a-loki/ && oc apply -f config/00b-logging/
-```
-
-Verify (on the cluster you applied to):
-
-```bash
-# Where Loki runs (hub or internal spoke)
-oc get ns openshift-operators-redhat openshift-logging
-oc get operatorgroup -n openshift-operators-redhat   # loki-operator
-
-# Where Logging Operator runs (spoke)
-oc get ns openshift-logging
-oc get operatorgroup -n openshift-logging           # cluster-logging
-```
-
----
-
-## Step 2: Deploy Loki on the cluster where Loki runs
+## Step 1: Deploy Loki on the cluster where Loki runs
 
 **Where:**  
 - **Internal**: Run on the **spoke** (the cluster that will store its own logs).  
@@ -106,13 +52,26 @@ oc get operatorgroup -n openshift-logging           # cluster-logging
 
 Do **not** run this step on the spoke when using external Loki; the spoke only forwards logs to the hub.
 
-### 2.1 Subscribe to the Loki Operator
+### 1.1 Create namespaces and OperatorGroup, then subscribe to the Loki Operator
+
+All Loki-related resources (namespaces, **loki-operator** OperatorGroup, subscription) are in `config/01-loki-operator/`.
+
+**Using the Makefile:**
 
 ```bash
+make install-loki
+```
+
+**Using oc apply** (namespaces and OperatorGroup first, then subscription):
+
+```bash
+oc apply -f config/01-loki-operator/openshift-operators-redhat-namespace.yaml
+oc apply -f config/01-loki-operator/openshift-operators-redhat-operatorgroup.yaml
+oc apply -f config/01-loki-operator/openshift-logging-namespace.yaml
 oc apply -f config/01-loki-operator/loki-operator-subscription.yaml
 ```
 
-### 2.2 Approve the InstallPlan
+### 1.2 Approve the InstallPlan
 
 Wait until an InstallPlan appears, then approve it:
 
@@ -122,14 +81,14 @@ make approve-loki
 # Or: ./scripts/approve-installplan.sh openshift-operators-redhat
 ```
 
-### 2.3 Verify Loki Operator
+### 1.3 Verify Loki Operator
 
 ```bash
 oc get csv -n openshift-operators-redhat | grep loki
 oc get pods -n openshift-operators-redhat | grep loki
 ```
 
-### 2.4 Deploy a LokiStack instance (ODF storage)
+### 1.4 Deploy a LokiStack instance (ODF storage)
 
 On the same cluster where you installed the Loki Operator (spoke for internal, hub for external), deploy the LokiStack using **ODF**:
 
@@ -159,7 +118,7 @@ oc get pods -n openshift-logging | grep loki
 
 ---
 
-## Step 2b: On the spoke only (external) – forward logs to the hub’s Loki
+## Step 1b: On the spoke only (external) – forward logs to the hub’s Loki
 
 **Where:** **Spoke cluster(s)** only. Use this when Loki runs on the hub and this cluster should send logs to it.
 
@@ -183,25 +142,35 @@ oc get pods -n openshift-logging | grep loki
 
 ---
 
-## Step 3: Install Red Hat OpenShift Logging Operator (on the cluster that collects logs)
+## Step 2: Install Red Hat OpenShift Logging Operator (on the cluster that collects logs)
 
 **Where:** On the **spoke** in both scenarios (the cluster that produces the logs). For internal, install after Loki is ready on that same spoke. For external, the hub does not need the Logging Operator for receiving logs; only the spoke does.
 
-### 3.1 Subscribe to the OpenShift Logging Operator
+### 2.1 Create namespace and OperatorGroup, then subscribe to the OpenShift Logging Operator
 
-- **Logging 5.x** (ClusterLogging CR):
+All Logging-related resources (namespace, **cluster-logging** OperatorGroup, subscription) are in `config/02-openshift-logging/`.
 
-  ```bash
-  oc apply -f config/02-openshift-logging/openshift-logging-operator-subscription.yaml
-  ```
+**Using the Makefile:**
 
-- **Logging 6.x** (ClusterLogForwarder CR):
+```bash
+make install-logging
+```
 
-  ```bash
-  oc apply -f config/02-openshift-logging/logging-v6-subscription.yaml
-  ```
+**Using oc apply** (namespace and OperatorGroup first, then subscription):
 
-### 3.2 Approve the InstallPlan
+```bash
+oc apply -f config/02-openshift-logging/openshift-logging-namespace.yaml
+oc apply -f config/02-openshift-logging/openshift-logging-operatorgroup.yaml
+oc apply -f config/02-openshift-logging/openshift-logging-operator-subscription.yaml
+```
+
+For **Logging 6.x** (ClusterLogForwarder) use the v6 subscription instead:
+
+```bash
+oc apply -f config/02-openshift-logging/logging-v6-subscription.yaml
+```
+
+### 2.2 Approve the InstallPlan
 
 ```bash
 # Wait for: oc get installplan -n openshift-logging
@@ -209,14 +178,14 @@ make approve-logging
 # Or: ./scripts/approve-installplan.sh openshift-logging
 ```
 
-### 3.3 Verify OpenShift Logging Operator
+### 2.3 Verify OpenShift Logging Operator
 
 ```bash
 oc get csv -n openshift-logging | grep cluster-logging
 oc get pods -n openshift-logging | grep cluster-logging
 ```
 
-### 3.4 Configure logging to Loki
+### 2.4 Configure logging to Loki
 
 - **Internal (LokiStack on this spoke)**  
   - **Logging 6.x**: Create the log collector service account, then apply the ClusterLogForwarder to the in-cluster LokiStack on the same spoke:
@@ -227,7 +196,7 @@ oc get pods -n openshift-logging | grep cluster-logging
   - **Logging 5.x**: Use a ClusterLogging CR with `logStore.type: lokistack` and `logStore.lokistack.name: logging-loki` (see Red Hat documentation), or use the ClusterLogForwarder if your 5.x version supports it.
 
 - **External (forward to hub’s Loki)**  
-  See **Step 2b** above (ClusterLogForwarder with `type: loki` and the hub’s Loki URL).
+  See **Step 1b** above (ClusterLogForwarder with `type: loki` and the hub’s Loki URL).
 
 Verify collectors/forwarder pods:
 
@@ -237,7 +206,7 @@ oc get pods -n openshift-logging
 
 ---
 
-## Step 4: Install Cluster Observability Operator (optional, for Observe → Logs)
+## Step 3: Install Cluster Observability Operator (optional, for Observe → Logs)
 
 **Where:**  
 - **Internal**: On the **spoke** (so Observe → Logs is available in the spoke console).  
@@ -245,7 +214,7 @@ oc get pods -n openshift-logging
 
 The Cluster Observability Operator provides the **Logging UI plugin** (Observe → Logs in the console).
 
-### 4.1 Subscribe to the Cluster Observability Operator
+### 3.1 Subscribe to the Cluster Observability Operator
 
 ```bash
 oc apply -f config/03-cluster-observability-operator/cluster-observability-operator-subscription.yaml
@@ -253,14 +222,14 @@ oc apply -f config/03-cluster-observability-operator/cluster-observability-opera
 
 This subscription uses `installPlanApproval: Automatic`; no manual approval is required.
 
-### 4.2 Wait for the operator
+### 3.2 Wait for the operator
 
 ```bash
 oc get csv -n openshift-operators | grep cluster-observability
 oc get pods -n openshift-operators | grep cluster-observability
 ```
 
-### 4.3 Enable the Logging UI plugin
+### 3.3 Enable the Logging UI plugin
 
 Enable on the cluster where Loki runs and where you want **Observe → Logs**: the spoke for internal, the hub for external. Do not enable on the spoke when using external Loki (the spoke has no Loki to query).
 
@@ -278,26 +247,24 @@ From the repository root. **OCP 4.20.**
 
 | Target | Description |
 |--------|-------------|
-| `make prereqs-loki` | Prereqs for cluster where Loki runs (hub or internal spoke): redhat ns + **loki-operator** OG + logging ns |
-| `make prereqs-logging` | Prereqs for cluster where Logging runs (spoke): logging ns + **cluster-logging** OG |
-| `make prereqs` | Apply both prereqs (e.g. internal spoke) |
-| `make install-loki` | Apply Loki Operator subscription (on cluster where Loki runs) |
+| `make install-loki` | Namespaces, **loki-operator** OperatorGroup, Loki Operator subscription (cluster where Loki runs) |
 | `make approve-loki` | Approve pending InstallPlans in openshift-operators-redhat |
-| `make deploy-lokistack` | ODF: ObjectBucketClaim + secret script + LokiStack (internal) |
-| `make install-logging` | Apply OpenShift Logging Operator subscription (5.x, OCP 4.20) |
+| `make deploy-lokistack` | ODF: ObjectBucketClaim + secret script + LokiStack |
+| `make install-logging` | Namespace, **cluster-logging** OperatorGroup, OpenShift Logging Operator subscription (5.x) |
+| `make install-logging-v6` | Same with Logging 6.x subscription |
 | `make approve-logging` | Approve pending InstallPlans in openshift-logging |
 | `make deploy-logforwarder` | SA + ClusterLogForwarder to **internal** LokiStack (Logging 6.x) |
 | `make deploy-logforwarder-external` | ClusterLogForwarder to **external** Loki URL (edit URL/secret first) |
 | `make install-coo` | Apply Cluster Observability Operator subscription |
-| `make deploy-uiplugin` | Apply UIPlugin for Observe → Logs (internal only) |
+| `make deploy-uiplugin` | Apply UIPlugin for Observe → Logs |
 | `make verify` | Print status of operators and key resources |
 
 **Internal (Loki on spoke):** On the spoke, run:  
-`make prereqs install-loki approve-loki deploy-lokistack install-logging approve-logging deploy-logforwarder install-coo deploy-uiplugin`
+`make install-loki approve-loki deploy-lokistack install-logging approve-logging deploy-logforwarder install-coo deploy-uiplugin`
 
 **External (Loki on hub):**  
-- On the **hub**: `make prereqs-loki install-loki approve-loki deploy-lokistack` (optionally `install-coo deploy-uiplugin` for Observe → Logs on the hub). Do **not** run `prereqs-logging` on the hub.  
-- On the **spoke**: `make prereqs-logging install-logging approve-logging`, then create secret, set the hub Loki URL in `clusterlogforwarder-external-loki.yaml`, and `make deploy-logforwarder-external`. Do **not** run `prereqs-loki` on the spoke.
+- On the **hub**: `make install-loki approve-loki deploy-lokistack` (optionally `install-coo deploy-uiplugin` for Observe → Logs on the hub).  
+- On the **spoke**: `make install-logging approve-logging`, then create secret, set the hub Loki URL in `clusterlogforwarder-external-loki.yaml`, and `make deploy-logforwarder-external`.
 
 ---
 
@@ -308,14 +275,12 @@ ocplog_to_loki/
 ├── README.md                 # This guide (OCP 4.20, internal + external Loki)
 ├── Makefile                  # Targets for apply and verify
 ├── config/
-│   ├── 00a-loki/             # Prereqs where Loki runs: redhat ns, loki-operator OG, logging ns
-│   ├── 00b-logging/         # Prereqs where Logging runs: logging ns, cluster-logging OG
-│   ├── 01-loki-operator/    # Loki subscription, LokiStack, OBC (internal + ODF)
-│   ├── 02-openshift-logging/ # Logging subscription; ClusterLogForwarder (internal + external), SA, secret example
-│   └── 03-cluster-observability-operator/ # COO subscription, UIPlugin (internal only)
+│   ├── 01-loki-operator/     # Namespaces, loki-operator OperatorGroup, subscription, LokiStack, OBC
+│   ├── 02-openshift-logging/ # Namespace, cluster-logging OperatorGroup, subscription, ClusterLogForwarder, SA, secret example
+│   └── 03-cluster-observability-operator/ # COO subscription, UIPlugin
 └── scripts/
     ├── approve-installplan.sh      # Approve InstallPlans in a namespace
-    └── create-loki-odf-secret.sh   # Create Loki ODF storage secret from OBC (internal)
+    └── create-loki-odf-secret.sh   # Create Loki ODF storage secret from OBC
 ```
 
 ---
