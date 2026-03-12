@@ -1,3 +1,4 @@
+# LokiStack CR is created in this namespace. Create on cluster where Loki runs.
 apiVersion: v1
 kind: Namespace
 metadata:

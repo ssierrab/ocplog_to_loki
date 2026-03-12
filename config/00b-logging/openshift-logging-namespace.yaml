@@ -1,0 +1,7 @@
+# For cluster where OpenShift Logging Operator runs (spoke in both scenarios).
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: openshift-logging
+  labels:
+    openshift.io/cluster-monitoring: "true"

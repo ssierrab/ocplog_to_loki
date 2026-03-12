@@ -44,30 +44,56 @@ On the **spoke**: Prerequisites → Loki Operator → LokiStack (ODF) → OpenSh
 
 ---
 
-## Step 1: Prerequisites
+## Step 1: Prerequisites (split by role)
 
-**Where:** On each cluster you are configuring (spoke for internal; hub and spoke for external).
+Prerequisites are split so you only create what each cluster needs:
 
-Create namespaces and operator groups used by Loki and OpenShift Logging.
+| Prereq set | Contents | Apply where |
+|------------|----------|-------------|
+| **Loki** (00a-loki) | `openshift-operators-redhat` ns, **loki-operator** OperatorGroup, `openshift-logging` ns | Cluster where **Loki** runs: **hub** (external) or **spoke** (internal) |
+| **Logging** (00b-logging) | `openshift-logging` ns, **cluster-logging** OperatorGroup | Cluster where **OpenShift Logging Operator** runs: **spoke** (both scenarios) |
+
+- **External**: On the **hub** apply only **Loki** prereqs (no cluster-logging OperatorGroup on the hub). On the **spoke** apply only **Logging** prereqs (no loki-operator OperatorGroup on the spoke).
+- **Internal**: On the **spoke** apply **both** Loki and Logging prereqs.
 
 ### Using the Makefile
 
 ```bash
+# External: on hub
+make prereqs-loki
+
+# External: on spoke
+make prereqs-logging
+
+# Internal: on spoke (both)
+make prereqs-loki prereqs-logging
+# or
 make prereqs
 ```
 
 ### Using oc apply
 
 ```bash
-oc apply -f config/00-prerequisites/
+# External hub
+oc apply -f config/00a-loki/
+
+# External spoke
+oc apply -f config/00b-logging/
+
+# Internal spoke (both)
+oc apply -f config/00a-loki/ && oc apply -f config/00b-logging/
 ```
 
-Verify:
+Verify (on the cluster you applied to):
 
 ```bash
+# Where Loki runs (hub or internal spoke)
 oc get ns openshift-operators-redhat openshift-logging
-oc get operatorgroup -n openshift-operators-redhat
-oc get operatorgroup -n openshift-logging
+oc get operatorgroup -n openshift-operators-redhat   # loki-operator
+
+# Where Logging Operator runs (spoke)
+oc get ns openshift-logging
+oc get operatorgroup -n openshift-logging           # cluster-logging
 ```
 
 ---
@@ -252,8 +278,10 @@ From the repository root. **OCP 4.20.**
 
 | Target | Description |
 |--------|-------------|
-| `make prereqs` | Apply prerequisite namespaces and operator groups |
-| `make install-loki` | Apply Loki Operator subscription (internal only) |
+| `make prereqs-loki` | Prereqs for cluster where Loki runs (hub or internal spoke): redhat ns + **loki-operator** OG + logging ns |
+| `make prereqs-logging` | Prereqs for cluster where Logging runs (spoke): logging ns + **cluster-logging** OG |
+| `make prereqs` | Apply both prereqs (e.g. internal spoke) |
+| `make install-loki` | Apply Loki Operator subscription (on cluster where Loki runs) |
 | `make approve-loki` | Approve pending InstallPlans in openshift-operators-redhat |
 | `make deploy-lokistack` | ODF: ObjectBucketClaim + secret script + LokiStack (internal) |
 | `make install-logging` | Apply OpenShift Logging Operator subscription (5.x, OCP 4.20) |
@@ -268,8 +296,8 @@ From the repository root. **OCP 4.20.**
 `make prereqs install-loki approve-loki deploy-lokistack install-logging approve-logging deploy-logforwarder install-coo deploy-uiplugin`
 
 **External (Loki on hub):**  
-- On the **hub**: `make prereqs install-loki approve-loki deploy-lokistack` (optionally `install-coo deploy-uiplugin` for Observe → Logs on the hub).  
-- On the **spoke**: `make prereqs install-logging approve-logging`, then create secret, set the hub Loki URL in `clusterlogforwarder-external-loki.yaml`, and `make deploy-logforwarder-external`.
+- On the **hub**: `make prereqs-loki install-loki approve-loki deploy-lokistack` (optionally `install-coo deploy-uiplugin` for Observe → Logs on the hub). Do **not** run `prereqs-logging` on the hub.  
+- On the **spoke**: `make prereqs-logging install-logging approve-logging`, then create secret, set the hub Loki URL in `clusterlogforwarder-external-loki.yaml`, and `make deploy-logforwarder-external`. Do **not** run `prereqs-loki` on the spoke.
 
 ---
 
@@ -280,7 +308,8 @@ ocplog_to_loki/
 ├── README.md                 # This guide (OCP 4.20, internal + external Loki)
 ├── Makefile                  # Targets for apply and verify
 ├── config/
-│   ├── 00-prerequisites/     # Namespaces and OperatorGroups
+│   ├── 00a-loki/             # Prereqs where Loki runs: redhat ns, loki-operator OG, logging ns
+│   ├── 00b-logging/         # Prereqs where Logging runs: logging ns, cluster-logging OG
 │   ├── 01-loki-operator/    # Loki subscription, LokiStack, OBC (internal + ODF)
 │   ├── 02-openshift-logging/ # Logging subscription; ClusterLogForwarder (internal + external), SA, secret example
 │   └── 03-cluster-observability-operator/ # COO subscription, UIPlugin (internal only)

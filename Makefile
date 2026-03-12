@@ -4,9 +4,15 @@
 CONFIG_DIR := config
 SCRIPTS_DIR := scripts
 
-# Prerequisites: namespaces and operator groups
-prereqs:
-	oc apply -f $(CONFIG_DIR)/00-prerequisites/
+# Prerequisites: apply only what each cluster needs (see README Step 1).
+# Loki prereqs: cluster where Loki runs (hub for external, spoke for internal).
+prereqs-loki:
+	oc apply -f $(CONFIG_DIR)/00a-loki/
+# Logging prereqs: cluster where Logging Operator runs (spoke in both scenarios).
+prereqs-logging:
+	oc apply -f $(CONFIG_DIR)/00b-logging/
+# Both (e.g. internal spoke).
+prereqs: prereqs-loki prereqs-logging
 
 # --- Loki Operator ---
 install-loki:
@@ -76,6 +82,6 @@ verify:
 	@oc get csv -n openshift-operators 2>/dev/null | grep -E "NAME|cluster-observability" || true
 	@oc get uiplugin 2>/dev/null || true
 
-.PHONY: prereqs install-loki approve-loki deploy-lokistack deploy-loki-obc deploy-loki-secret deploy-lokistack-cr \
+.PHONY: prereqs prereqs-loki prereqs-logging install-loki approve-loki deploy-lokistack deploy-loki-obc deploy-loki-secret deploy-lokistack-cr \
 	install-logging install-logging-v6 approve-logging deploy-logforwarder deploy-logforwarder-external \
 	install-coo deploy-uiplugin verify
