@@ -4,5 +4,4 @@ metadata:
   name: cluster-logging
   namespace: openshift-logging
 spec:
-  targetNamespaces:
-    - openshift-logging
+  upgradeStrategy: Default

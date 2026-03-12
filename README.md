@@ -3,42 +3,50 @@
 **Target: OpenShift Container Platform 4.20.**  
 Storage for the log store: **OpenShift Data Foundation (ODF)**.
 
-This repository provides a **step-by-step guide** and **config files** to install and configure:
+This guide supports **hub-and-spoke** topologies: Loki can run on the same cluster that produces the logs (**internal**, e.g. on a spoke) or on another cluster (**external**, e.g. on the hub). In both cases Loki uses ODF for storage.
 
-1. **Loki Operator** – manages the Loki log store (internal deployment only)  
-2. **Red Hat OpenShift Logging Operator** – manages log collection and forwarding  
-3. **Cluster Observability Operator** – provides the logging UI plugin in the OpenShift console (Observe → Logs)
+---
 
-## Internal vs external Loki
+## Internal vs external: where Loki runs
 
-You can use Loki in two ways; both can use ODF for log storage:
+| Scenario | Where Loki runs | Where logs are collected |
+|----------|-----------------|---------------------------|
+| **Internal** | **Spoke cluster** (same cluster that produces the logs) | Spoke. Loki and log collection run on the same spoke. |
+| **External** | **Hub cluster** (a different cluster) | Spoke. Logs are collected on the spoke and forwarded to Loki on the hub. |
 
-| Mode | Description | When to use |
-|------|-------------|-------------|
-| **Internal** | Loki runs **on the cluster** as a LokiStack. Logs are stored in **ODF** (ObjectBucketClaim + S3-compatible backend). | You want a fully on-cluster log store with Observe → Logs in the console. |
-| **External** | Loki runs **outside the cluster**. OpenShift Logging forwards logs to its URL. The external Loki instance can use ODF or any other storage. | You already have a central Loki (or want to use an external ODF-backed Loki). |
+- **Internal Loki**: Deploy Loki (Loki Operator + LokiStack with ODF) **on the spoke**. Then deploy OpenShift Logging Operator and ClusterLogForwarder on that same spoke so logs go to the in-cluster LokiStack. Optionally add Cluster Observability Operator + UIPlugin on the spoke for **Observe → Logs** in the spoke console.
+- **External Loki**: Deploy Loki (Loki Operator + LokiStack with ODF) **on the hub**. On each **spoke**, deploy only the OpenShift Logging Operator and configure ClusterLogForwarder to send logs to the hub’s Loki URL. Do **not** install the Loki Operator or LokiStack on the spoke. Use **Observe → Logs** on the hub (or Grafana) to query logs; the spoke does not host the log store.
 
-- **Internal path**: Prerequisites → Loki Operator → LokiStack (ODF) → OpenShift Logging Operator → ClusterLogForwarder to LokiStack → Cluster Observability Operator → UIPlugin.  
-- **External path**: Prerequisites → OpenShift Logging Operator only → ClusterLogForwarder to external Loki URL (no Loki Operator or LokiStack on cluster). The **Observe → Logs** console plugin may not integrate with an external Loki; use the external Loki UI or Grafana instead.
+## Quick reference: where to run what
+
+| What to do | Internal (Loki on spoke) | External (Loki on hub) |
+|------------|--------------------------|-------------------------|
+| **Deploy Loki** (Operator + LokiStack + ODF) | On the **spoke** | On the **hub** |
+| **Deploy OpenShift Logging Operator** | On the **spoke** | On the **spoke** |
+| **Configure forwarding** (ClusterLogForwarder) | On the **spoke** → in-cluster LokiStack | On the **spoke** → hub Loki URL |
+| **Deploy COO + UIPlugin** (Observe → Logs) | On the **spoke** (optional) | On the **hub** (optional); not on spoke for Loki UI |
 
 ## Requirements
 
-- **OpenShift 4.20** with admin access  
-- `oc` CLI installed and logged in  
-- **Internal**: Loki and OpenShift Logging operators must use compatible major/minor versions; **ODF** for LokiStack storage (ObjectBucketClaim).  
-- **External**: A reachable Loki push endpoint (HTTPS recommended) and optional TLS/auth secret.  
+- **OpenShift 4.20** on both hub and spoke (or compatible versions).  
+- `oc` CLI and admin access to the cluster(s) you are configuring.  
+- **ODF** on the cluster where Loki runs (hub for external, spoke for internal) for LokiStack storage (ObjectBucketClaim).  
+- **External only**: The spoke must reach the hub’s Loki push endpoint (HTTPS recommended; network/ingress and optional TLS auth).
 
-## Installation order
+## Installation order (by scenario)
 
-**Internal (Loki on cluster with ODF):**  
-Prerequisites → Loki Operator → LokiStack (ODF) → OpenShift Logging Operator → ClusterLogForwarder (to LokiStack) → Cluster Observability Operator → UIPlugin.
+**Internal (Loki on spoke):**  
+On the **spoke**: Prerequisites → Loki Operator → LokiStack (ODF) → OpenShift Logging Operator → ClusterLogForwarder (to LokiStack) → Cluster Observability Operator → UIPlugin.
 
-**External (forward to external Loki):**  
-Prerequisites → OpenShift Logging Operator → ClusterLogForwarder (to external URL). No Loki Operator or UIPlugin required.
+**External (Loki on hub):**  
+1. On the **hub**: Prerequisites → Loki Operator → LokiStack (ODF). Optionally COO + UIPlugin for Observe → Logs on the hub.  
+2. On the **spoke**: Prerequisites → OpenShift Logging Operator only → ClusterLogForwarder (to hub Loki URL). Do **not** install Loki Operator or LokiStack on the spoke.
 
 ---
 
 ## Step 1: Prerequisites
+
+**Where:** On each cluster you are configuring (spoke for internal; hub and spoke for external).
 
 Create namespaces and operator groups used by Loki and OpenShift Logging.
 
@@ -64,9 +72,13 @@ oc get operatorgroup -n openshift-logging
 
 ---
 
-## Step 2: Install Loki Operator (internal path only)
+## Step 2: Deploy Loki on the cluster where Loki runs
 
-Skip this step if you are using **external** Loki.
+**Where:**  
+- **Internal**: Run on the **spoke** (the cluster that will store its own logs).  
+- **External**: Run on the **hub** (the cluster that will host the central Loki).  
+
+Do **not** run this step on the spoke when using external Loki; the spoke only forwards logs to the hub.
 
 ### 2.1 Subscribe to the Loki Operator
 
@@ -91,9 +103,9 @@ oc get csv -n openshift-operators-redhat | grep loki
 oc get pods -n openshift-operators-redhat | grep loki
 ```
 
-### 2.4 Deploy a LokiStack instance (internal + ODF)
+### 2.4 Deploy a LokiStack instance (ODF storage)
 
-For **internal** Loki with **ODF** storage:
+On the same cluster where you installed the Loki Operator (spoke for internal, hub for external), deploy the LokiStack using **ODF**:
 
 1. Create the ObjectBucketClaim:
 
@@ -121,11 +133,11 @@ oc get pods -n openshift-logging | grep loki
 
 ---
 
-## Step 2b: External Loki (no Loki Operator)
+## Step 2b: On the spoke only (external) – forward logs to the hub’s Loki
 
-If you use **external** Loki:
+**Where:** **Spoke cluster(s)** only. Use this when Loki runs on the hub and this cluster should send logs to it.
 
-1. Do **not** install the Loki Operator or deploy a LokiStack.
+1. Do **not** install the Loki Operator or deploy a LokiStack on the spoke.
 2. Create the log collector service account (same as internal):
    ```bash
    bash config/02-openshift-logging/serviceaccount.sh
@@ -136,16 +148,18 @@ If you use **external** Loki:
    # Edit secret-external-loki.yaml and set tls.crt, tls.key, ca-bundle.crt if needed
    oc apply -f config/02-openshift-logging/secret-external-loki.yaml
    ```
-4. Edit `config/02-openshift-logging/clusterlogforwarder-external-loki.yaml` and set `spec.outputs[0].url` to your external Loki push URL (e.g. `https://loki.example.com:3100/loki/api/v1/push`). If your Loki does not require client certs, you can remove the `secret` reference or use a secret with only `ca-bundle.crt` for server verification.
+4. Edit `config/02-openshift-logging/clusterlogforwarder-external-loki.yaml` and set `spec.outputs[0].url` to the **hub’s** Loki push URL (e.g. `https://<loki-gateway-on-hub>:443/loki/api/v1/push`). Use the Loki gateway route or ingress hostname on the hub. If your Loki does not require client certs, you can remove the `secret` reference or use a secret with only `ca-bundle.crt` for server verification.
 5. Apply the external ClusterLogForwarder:
    - **Logging 6.x** (observability API): `oc apply -f config/02-openshift-logging/clusterlogforwarder-external-loki.yaml`
    - **Logging 5.x** (OCP 4.20 default): `oc apply -f config/02-openshift-logging/clusterlogforwarder-external-loki-logging5.yaml`
 
+**Getting the hub’s Loki URL:** On the hub, after the LokiStack is deployed, get the Loki gateway route (e.g. `oc get route -n openshift-logging -l loki.grafana.com/name=logging-loki`) and use its HTTPS URL plus `/loki/api/v1/push` as the ClusterLogForwarder output URL. Ensure the spoke cluster can resolve and reach that hostname (network/DNS and any ingress or load balancer).
+
 ---
 
-## Step 3: Install Red Hat OpenShift Logging Operator
+## Step 3: Install Red Hat OpenShift Logging Operator (on the cluster that collects logs)
 
-Install **after** the Loki Operator (and optionally after the LokiStack is ready).
+**Where:** On the **spoke** in both scenarios (the cluster that produces the logs). For internal, install after Loki is ready on that same spoke. For external, the hub does not need the Logging Operator for receiving logs; only the spoke does.
 
 ### 3.1 Subscribe to the OpenShift Logging Operator
 
@@ -178,16 +192,16 @@ oc get pods -n openshift-logging | grep cluster-logging
 
 ### 3.4 Configure logging to Loki
 
-- **Internal (LokiStack on cluster)**  
-  - **Logging 6.x**: Create the log collector service account, then apply the ClusterLogForwarder to the in-cluster LokiStack:
+- **Internal (LokiStack on this spoke)**  
+  - **Logging 6.x**: Create the log collector service account, then apply the ClusterLogForwarder to the in-cluster LokiStack on the same spoke:
     ```bash
     bash config/02-openshift-logging/serviceaccount.sh
     oc apply -f config/02-openshift-logging/clusterlogforwarder.yaml
     ```
   - **Logging 5.x**: Use a ClusterLogging CR with `logStore.type: lokistack` and `logStore.lokistack.name: logging-loki` (see Red Hat documentation), or use the ClusterLogForwarder if your 5.x version supports it.
 
-- **External Loki**  
-  See **Step 2b** above (ClusterLogForwarder with `type: loki` and your URL).
+- **External (forward to hub’s Loki)**  
+  See **Step 2b** above (ClusterLogForwarder with `type: loki` and the hub’s Loki URL).
 
 Verify collectors/forwarder pods:
 
@@ -197,7 +211,11 @@ oc get pods -n openshift-logging
 
 ---
 
-## Step 4: Install Cluster Observability Operator
+## Step 4: Install Cluster Observability Operator (optional, for Observe → Logs)
+
+**Where:**  
+- **Internal**: On the **spoke** (so Observe → Logs is available in the spoke console).  
+- **External**: On the **hub** if you want Observe → Logs on the hub; do not install for Loki on the spoke.
 
 The Cluster Observability Operator provides the **Logging UI plugin** (Observe → Logs in the console).
 
@@ -216,9 +234,9 @@ oc get csv -n openshift-operators | grep cluster-observability
 oc get pods -n openshift-operators | grep cluster-observability
 ```
 
-### 4.3 Enable the Logging UI plugin (internal path only)
+### 4.3 Enable the Logging UI plugin
 
-Only for **internal** LokiStack. Not used for external Loki.
+Enable on the cluster where Loki runs and where you want **Observe → Logs**: the spoke for internal, the hub for external. Do not enable on the spoke when using external Loki (the spoke has no Loki to query).
 
 ```bash
 oc apply -f config/03-cluster-observability-operator/uiplugin-logging.yaml
@@ -246,11 +264,12 @@ From the repository root. **OCP 4.20.**
 | `make deploy-uiplugin` | Apply UIPlugin for Observe → Logs (internal only) |
 | `make verify` | Print status of operators and key resources |
 
-**Internal (ODF) full install:**  
+**Internal (Loki on spoke):** On the spoke, run:  
 `make prereqs install-loki approve-loki deploy-lokistack install-logging approve-logging deploy-logforwarder install-coo deploy-uiplugin`
 
-**External Loki:**  
-`make prereqs install-logging approve-logging` then create secret, edit `clusterlogforwarder-external-loki.yaml` URL, and `make deploy-logforwarder-external`.
+**External (Loki on hub):**  
+- On the **hub**: `make prereqs install-loki approve-loki deploy-lokistack` (optionally `install-coo deploy-uiplugin` for Observe → Logs on the hub).  
+- On the **spoke**: `make prereqs install-logging approve-logging`, then create secret, set the hub Loki URL in `clusterlogforwarder-external-loki.yaml`, and `make deploy-logforwarder-external`.
 
 ---
 
