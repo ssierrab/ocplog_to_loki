@@ -4,4 +4,5 @@ kind: OperatorGroup
 metadata:
   name: loki-operator
   namespace: openshift-operators-redhat
-spec: {}
+spec:
+  upgradeStrategy: Default

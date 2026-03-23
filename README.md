@@ -110,6 +110,10 @@ On the same cluster where you installed the Loki Operator (spoke for internal, h
    oc apply -f config/01-loki-operator/lokistack.yaml
    ```
 
+> **ODF object storage on the same OpenShift cluster as the Loki pods**  
+> When you use **OpenShift Data Foundation (ODF)** for object storage **in the same cluster** as Loki, the S3 endpoint is often secured with the **OpenShift Service CA**. In that case you **do not need to create an extra ConfigMap** for the object-storage CA: the **`openshift-service-ca.crt`** ConfigMap (present in namespaces when they are created) can be referenced so Loki trusts the cluster’s service CA—for example via `spec.storage.tls.caName: openshift-service-ca.crt` in `lokistack.yaml`, as in this repo’s default.  
+> For custom or external object-storage certificates, see Red Hat: [How to configure Loki Object Storage CA certificate in RHOCP 4](https://access.redhat.com/solutions/7006107).
+
 Adjust `config/01-loki-operator/lokistack.yaml` if you use a different storage class or secret name. Wait until LokiStack pods are running:
 
 ```bash
@@ -188,11 +192,13 @@ oc get pods -n openshift-logging | grep cluster-logging
 ### 2.4 Configure logging to Loki
 
 - **Internal (LokiStack on this spoke)**  
-  - **Logging 6.x**: Create the log collector service account, then apply the ClusterLogForwarder to the in-cluster LokiStack on the same spoke:
+  - **Logging 6.x**: Create the `logcollector` service account, create the **Bearer token Secret** for LokiStack, then apply the ClusterLogForwarder:
     ```bash
     bash config/02-openshift-logging/serviceaccount.sh
+    ./scripts/create-lokistack-bearer-secret.sh
     oc apply -f config/02-openshift-logging/clusterlogforwarder.yaml
     ```
+    **LokiStack auth** uses a token from a **Secret** (`lokiStack.authentication.token.from: secret`), Secret **`loki-stack-bearer-token`**, key **`token`**. The script fills it using `oc create token logcollector` (or a legacy SA token). `spec.serviceAccount.name: logcollector` is still required for the collector pods. Re-run `create-lokistack-bearer-secret.sh` to rotate. Manual template: `config/02-openshift-logging/secret-lokistack-bearer.example.yaml`.
   - **Logging 5.x**: Use a ClusterLogging CR with `logStore.type: lokistack` and `logStore.lokistack.name: logging-loki` (see Red Hat documentation), or use the ClusterLogForwarder if your 5.x version supports it.
 
 - **External (forward to hub’s Loki)**  
@@ -253,7 +259,7 @@ From the repository root. **OCP 4.20.**
 | `make install-logging` | Namespace, **cluster-logging** OperatorGroup, OpenShift Logging Operator subscription (5.x) |
 | `make install-logging-v6` | Same with Logging 6.x subscription |
 | `make approve-logging` | Approve pending InstallPlans in openshift-logging |
-| `make deploy-logforwarder` | SA + ClusterLogForwarder to **internal** LokiStack (Logging 6.x) |
+| `make deploy-logforwarder` | SA + `loki-stack-bearer-token` Secret + ClusterLogForwarder (Logging 6.x, token from Secret) |
 | `make deploy-logforwarder-external` | ClusterLogForwarder to **external** Loki URL (edit URL/secret first) |
 | `make install-coo` | Apply Cluster Observability Operator subscription |
 | `make deploy-uiplugin` | Apply UIPlugin for Observe → Logs |
@@ -279,8 +285,9 @@ ocplog_to_loki/
 │   ├── 02-openshift-logging/ # Namespace, cluster-logging OperatorGroup, subscription, ClusterLogForwarder, SA, secret example
 │   └── 03-cluster-observability-operator/ # COO subscription, UIPlugin
 └── scripts/
-    ├── approve-installplan.sh      # Approve InstallPlans in a namespace
-    └── create-loki-odf-secret.sh   # Create Loki ODF storage secret from OBC
+    ├── approve-installplan.sh           # Approve InstallPlans in a namespace
+    ├── create-loki-odf-secret.sh        # Loki ODF storage secret from ObjectBucketClaim
+    └── create-lokistack-bearer-secret.sh # Bearer token Secret for LokiStack (internal forwarder)
 ```
 
 ---

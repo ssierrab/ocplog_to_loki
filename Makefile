@@ -48,9 +48,10 @@ approve-logging:
 		oc patch $$ip --namespace openshift-logging --type merge --patch '{"spec":{"approved":true}}'; \
 	done
 
-# Logging 6.x: service account + ClusterLogForwarder to internal LokiStack
+# Logging 6.x: SA + bearer token Secret + ClusterLogForwarder (token from secret)
 deploy-logforwarder:
 	bash $(CONFIG_DIR)/02-openshift-logging/serviceaccount.sh
+	bash $(SCRIPTS_DIR)/create-lokistack-bearer-secret.sh
 	oc apply -f $(CONFIG_DIR)/02-openshift-logging/clusterlogforwarder.yaml
 
 # External Loki: edit clusterlogforwarder-external-loki.yaml URL (and secret) first, then run.

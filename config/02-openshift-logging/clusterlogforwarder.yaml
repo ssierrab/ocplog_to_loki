@@ -1,4 +1,9 @@
-# For OpenShift Logging 6.x. Requires logcollector SA (see serviceaccount.sh).
+# OpenShift Logging 6.x.
+# 1) serviceaccount.sh — creates logcollector SA + RBAC
+# 2) create-lokistack-bearer-secret.sh — Secret loki-stack-bearer-token (key: token)
+#
+# Authentication: Bearer token read from Secret (not projected SA token).
+# Token should be a valid Kubernetes/OAuth token for the same cluster (e.g. from logcollector).
 apiVersion: observability.openshift.io/v1
 kind: ClusterLogForwarder
 metadata:
@@ -16,7 +21,10 @@ spec:
           namespace: openshift-logging
         authentication:
           token:
-            from: serviceAccount
+            from: secret
+            secret:
+              name: loki-stack-bearer-token
+              key: token
       tls:
         ca:
           key: service-ca.crt
