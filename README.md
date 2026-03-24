@@ -137,11 +137,37 @@ Use this when Loki runs on the **hub** and a **spoke** forwards logs to it. Auth
 
    The manifests bind **`cluster-logging-write-application-logs`**, **`cluster-logging-write-audit-logs`**, and **`cluster-logging-write-infrastructure-logs`** to that service account (same write model as the in-cluster log collector).
 
-2. **Generate a long-lived token** for `remote-log-writer` and **copy the raw JWT** (no `Bearer ` prefix in the Secret value—the forwarder adds `Authorization: Bearer` for you):
+2. **Obtain a token** for `remote-log-writer` and **copy the raw JWT** for use on the spoke (in **`to-loki-secret`**, key **`token`**). Store **only the JWT string**—do **not** prefix with `Bearer `; the forwarder sends `Authorization: Bearer` automatically.
+
+   Choose **one** approach:
+
+   **Method 1 — Long-lived token (Secret on the hub that holds the token until rotated)**  
+   Create a `kubernetes.io/service-account-token` Secret; the control plane populates **`data.token`** with a JWT that stays valid until the Secret is deleted or replaced (no `--duration` window like bounded tokens).
+
+   If you already ran `make apply-hub-remote-log-writer`, **`03-long-lived-token-secret.yaml`** is applied with the SA and RBAC. Otherwise:
 
    ```bash
-   oc create token remote-log-writer -n openshift-logging --duration=8760h
+   oc apply -f config/02-openshift-logging/hub-remote-log-writer/
    ```
+
+   Then read the JWT (still **no `Bearer `** prefix on the spoke):
+
+   ```bash
+   oc wait --for=jsonpath='{.data.token}' secret/remote-log-writer-token -n openshift-logging --timeout=120s
+   oc get secret remote-log-writer-token -n openshift-logging -o jsonpath='{.data.token}' | base64 -d
+   ```
+
+   Copy the printed JWT into **`to-loki-secret`** on the spoke. If you use **Method 2** instead, you can skip using this Secret on the hub (you may still apply the whole directory; the unused Secret is harmless, or apply only `01-serviceaccount.yaml` and `02-rbac.yaml`).
+
+   **Method 2 — Short-lived token (`oc create token`)**  
+   Issue a bounded token with an explicit lifetime. Simpler for trials; you must **re-issue before expiry** and **update `to-loki-secret`** on the spoke (or automation), or forwarding will fail with 401.
+
+   ```bash
+   # Example: 24 hours — adjust --duration as your policy allows (e.g. 168h, 720h)
+   oc create token remote-log-writer -n openshift-logging --duration=24h
+   ```
+
+   Use whichever method fits your security and operations model.
 
 3. **Extract the hub gateway CA** (PEM) for TLS verification from the spoke. Usually the Loki gateway uses the OpenShift **service CA**; export it from the hub into a file (example name `hub-service-ca.crt`):
 
