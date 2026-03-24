@@ -200,12 +200,6 @@ Use this when Loki runs on the **hub** and a **spoke** forwards logs to it. Auth
      --from-file=ca-bundle.crt=hub-service-ca.crt
    ```
 
-   Or use the helper (reads `TO_LOKI_TOKEN` or `EXTERNAL_LOKI_BEARER_TOKEN`, and **`HUB_LOKI_CA_FILE`** path):
-
-   ```bash
-   TO_LOKI_TOKEN='<jwt>' HUB_LOKI_CA_FILE=./hub-service-ca.crt ./scripts/create-to-loki-secret.sh
-   ```
-
    Template: `config/02-openshift-logging/to-loki-secret.example.yaml`.
 
 4. Edit **`clusterlogforwarder-external-loki.yaml`** (Logging 6.x) and set **`spec.outputs[0].loki.url`** to the hub push URL. The manifest references **`to-loki-secret`** for both **token** and **TLS CA** (`ca-bundle.crt`).
@@ -216,7 +210,7 @@ Use this when Loki runs on the **hub** and a **spoke** forwards logs to it. Auth
 
 **Connectivity:** The spoke must resolve and reach the hub gateway hostname (DNS / routes / firewall).
 
-**Makefile:** `make apply-hub-remote-log-writer` (on hub). On spoke: `make deploy-logforwarder-external` with optional `TO_LOKI_TOKEN` and `HUB_LOKI_CA_FILE` to create the Secret in the same run.
+**Makefile:** `make apply-hub-remote-log-writer` (on hub). On spoke: create **`to-loki-secret`** as above, then `make deploy-logforwarder-external` (collector SA + apply external ClusterLogForwarder).
 
 ---
 
@@ -335,7 +329,7 @@ From the repository root. **OCP 4.20.**
 | `make approve-logging` | Approve pending InstallPlans in openshift-logging |
 | `make deploy-logforwarder` | SA + `loki-stack-bearer-token` Secret + ClusterLogForwarder (Logging 6.x, token from Secret) |
 | `make apply-hub-remote-log-writer` | **Hub:** SA `remote-log-writer` + ClusterRoleBindings for Loki gateway write |
-| `make deploy-logforwarder-external` | **Spoke:** SA + optional `TO_LOKI_TOKEN` + `HUB_LOKI_CA_FILE` → `to-loki-secret`, then apply external ClusterLogForwarder |
+| `make deploy-logforwarder-external` | **Spoke:** collector SA + apply external ClusterLogForwarder (create **`to-loki-secret`** first with `oc create secret`) |
 | `make install-coo` | Apply Cluster Observability Operator subscription |
 | `make deploy-uiplugin` | Apply UIPlugin for Observe → Logs |
 | `make verify` | Print status of operators and key resources |
@@ -362,8 +356,7 @@ ocplog_to_loki/
 └── scripts/
     ├── approve-installplan.sh
     ├── create-loki-odf-secret.sh
-    ├── create-lokistack-bearer-secret.sh
-    └── create-to-loki-secret.sh            # Spoke: to-loki-secret from hub token + CA file
+    └── create-lokistack-bearer-secret.sh
 ```
 
 ---

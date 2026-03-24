@@ -54,8 +54,7 @@ deploy-logforwarder:
 	bash $(SCRIPTS_DIR)/create-lokistack-bearer-secret.sh
 	oc apply -f $(CONFIG_DIR)/02-openshift-logging/clusterlogforwarder.yaml
 
-# External Loki: on spoke, Secret to-loki-secret (token + ca-bundle.crt); edit URL in YAML.
-# Optional: TO_LOKI_TOKEN=... HUB_LOKI_CA_FILE=./hub-ca.crt make deploy-logforwarder-external
+# External Loki: create to-loki-secret on spoke (oc create secret …) before apply; edit URL in YAML.
 # HUB: make apply-hub-remote-log-writer (creates remote-log-writer SA + RBAC)
 # Logging 5.x: oc apply -f $(CONFIG_DIR)/02-openshift-logging/clusterlogforwarder-external-loki-logging5.yaml
 apply-hub-remote-log-writer:
@@ -63,9 +62,6 @@ apply-hub-remote-log-writer:
 
 deploy-logforwarder-external:
 	bash $(CONFIG_DIR)/02-openshift-logging/serviceaccount.sh
-	@if [ -n "$$TO_LOKI_TOKEN" ] && [ -n "$$HUB_LOKI_CA_FILE" ]; then \
-		$(SCRIPTS_DIR)/create-to-loki-secret.sh; \
-	fi
 	oc apply -f $(CONFIG_DIR)/02-openshift-logging/clusterlogforwarder-external-loki.yaml
 
 # --- Cluster Observability Operator ---
