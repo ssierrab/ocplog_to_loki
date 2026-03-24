@@ -1,11 +1,12 @@
-# OpenShift Logging 6.x (ClusterLogForwarder-based). Use this OR openshift-logging-operator-subscription.yaml.
+# Same operator as openshift-logging-operator-subscription.yaml; alternate file for docs that reference "v6" manifest.
+# Channel must match OperatorHub (e.g. stable-6.4) and align with Loki subscription minor.
 apiVersion: operators.coreos.com/v1alpha1
 kind: Subscription
 metadata:
   name: cluster-logging
   namespace: openshift-logging
 spec:
-  channel: stable-6.0
+  channel: stable-6.4
   installPlanApproval: Manual
   name: cluster-logging
   source: redhat-operators

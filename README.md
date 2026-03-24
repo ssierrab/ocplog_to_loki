@@ -152,11 +152,7 @@ oc apply -f config/02-openshift-logging/openshift-logging-operatorgroup.yaml
 oc apply -f config/02-openshift-logging/openshift-logging-operator-subscription.yaml
 ```
 
-For **Logging 6.x** (ClusterLogForwarder) use the v6 subscription instead:
-
-```bash
-oc apply -f config/02-openshift-logging/logging-v6-subscription.yaml
-```
+Both **`openshift-logging-operator-subscription.yaml`** and **`logging-v6-subscription.yaml`** install **cluster-logging** on channel **`stable-6.4`** (same choices as the console: **stable-6.4**, **stable-6.3**, **stable-6.2**, …). Keep the **same minor** as **Loki** (this repo uses **stable-6.4** for both). To use another minor, edit **`spec.channel`** in the subscription YAML or patch the live Subscription. Use **`logging-v6-subscription.yaml`** only if you prefer that filename (for example **`make install-logging-v6`**); do not apply both files to the same namespace.
 
 ### 2.2 Approve the InstallPlan
 
@@ -352,7 +348,7 @@ With `oc` on the spoke:
 4. **OpenShift Logging Operator** (subscription in `openshift-logging`):
 
    ```bash
-   oc delete subscription cluster-logging -n openshift-logging --ignore-not-found
+   oc delete subscriptions.operators.coreos.com cluster-logging -n openshift-logging --ignore-not-found
    ```
 
    Wait for the **cluster-logging** CSV to disappear from `openshift-logging`; if it remains, remove it (and any related InstallPlans) per your cluster policy.
@@ -365,7 +361,7 @@ With `oc` on the cluster where **Step 1** and LokiStack run:
 
    ```bash
    oc delete uiplugin logging --ignore-not-found
-   oc delete subscription cluster-observability-operator -n openshift-operators --ignore-not-found
+   oc delete subscriptions.operators.coreos.com cluster-observability-operator -n openshift-operators --ignore-not-found
    ```
 
    Wait for the **cluster-observability-operator** CSV to leave `openshift-operators` if you removed the subscription.
@@ -393,7 +389,7 @@ With `oc` on the cluster where **Step 1** and LokiStack run:
 4. **Loki Operator:**
 
    ```bash
-   oc delete subscription loki-operator -n openshift-operators-redhat --ignore-not-found
+   oc delete subscriptions.operators.coreos.com loki-operator -n openshift-operators-redhat --ignore-not-found
    ```
 
    Wait for the Loki **CSV** to be removed from `openshift-operators-redhat`.
@@ -420,8 +416,8 @@ From the repository root. **OCP 4.20.**
 | `make install-loki-operatorgroup` | Optional: apply `openshift-operators-redhat-operatorgroup.yaml` only if the namespace has **no** OperatorGroup |
 | `make approve-loki` | Approve pending InstallPlans in openshift-operators-redhat |
 | `make deploy-lokistack` | ODF: ObjectBucketClaim + secret script + LokiStack |
-| `make install-logging` | Namespace, **cluster-logging** OperatorGroup, OpenShift Logging Operator subscription (5.x) |
-| `make install-logging-v6` | Same with Logging 6.x subscription |
+| `make install-logging` | Namespace, **cluster-logging** OperatorGroup, OpenShift Logging subscription (**stable-6.4**) |
+| `make install-logging-v6` | Same channel via **`logging-v6-subscription.yaml`** (pick **`install-logging` *or* this, not both) |
 | `make approve-logging` | Approve pending InstallPlans in openshift-logging |
 | `make deploy-logforwarder` | SA + `loki-stack-bearer-token` Secret + ClusterLogForwarder (Logging 6.x, token from Secret) |
 | `make apply-hub-remote-log-writer` | **Hub:** SA `remote-log-writer` + ClusterRoleBindings for Loki gateway write |
