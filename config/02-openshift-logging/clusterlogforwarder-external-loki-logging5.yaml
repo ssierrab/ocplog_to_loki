@@ -1,8 +1,6 @@
-# Forward logs from spoke to Loki on hub — logging.openshift.io / Logging 5.x
-# 1. Secret loki-external-bearer-token in openshift-logging with key "token" (bearer value).
-#    See secret-external-loki-bearer.example.yaml or create-external-loki-bearer-secret.sh
-# 2. Some 5.x versions expect the bearer key name "bearerToken" instead of "token"; check your release docs.
-# 3. Set url to the hub Loki push endpoint.
+# SPOKE: forward to hub Loki — logging.openshift.io / Logging 5.x
+# Secret to-loki-secret: keys token (raw JWT) and ca-bundle.crt (hub gateway CA PEM).
+# If your release only supports a single secret reference, ensure both keys exist in to-loki-secret.
 apiVersion: logging.openshift.io/v1
 kind: ClusterLogForwarder
 metadata:
@@ -14,7 +12,7 @@ spec:
       type: loki
       url: https://<loki-gateway-on-hub>/loki/api/v1/push
       secret:
-        name: loki-external-bearer-token
+        name: to-loki-secret
   pipelines:
     - name: application
       inputRefs:

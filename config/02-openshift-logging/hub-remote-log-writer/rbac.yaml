@@ -1,0 +1,39 @@
+# HUB only: allow remote-log-writer to push logs via the LokiStack gateway (same write roles as in-cluster collector).
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: remote-log-writer-cluster-logging-write-application-logs
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: cluster-logging-write-application-logs
+subjects:
+  - kind: ServiceAccount
+    name: remote-log-writer
+    namespace: openshift-logging
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: remote-log-writer-cluster-logging-write-audit-logs
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: cluster-logging-write-audit-logs
+subjects:
+  - kind: ServiceAccount
+    name: remote-log-writer
+    namespace: openshift-logging
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: remote-log-writer-cluster-logging-write-infrastructure-logs
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: cluster-logging-write-infrastructure-logs
+subjects:
+  - kind: ServiceAccount
+    name: remote-log-writer
+    namespace: openshift-logging

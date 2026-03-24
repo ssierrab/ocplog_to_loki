@@ -54,13 +54,17 @@ deploy-logforwarder:
 	bash $(SCRIPTS_DIR)/create-lokistack-bearer-secret.sh
 	oc apply -f $(CONFIG_DIR)/02-openshift-logging/clusterlogforwarder.yaml
 
-# External Loki: create Secret loki-external-bearer-token (key token) first; edit URL in YAML.
-# Optional: EXTERNAL_LOKI_BEARER_TOKEN=... make deploy-logforwarder-external (creates/updates secret).
+# External Loki: on spoke, Secret to-loki-secret (token + ca-bundle.crt); edit URL in YAML.
+# Optional: TO_LOKI_TOKEN=... HUB_LOKI_CA_FILE=./hub-ca.crt make deploy-logforwarder-external
+# HUB: make apply-hub-remote-log-writer (creates remote-log-writer SA + RBAC)
 # Logging 5.x: oc apply -f $(CONFIG_DIR)/02-openshift-logging/clusterlogforwarder-external-loki-logging5.yaml
+apply-hub-remote-log-writer:
+	oc apply -f $(CONFIG_DIR)/02-openshift-logging/hub-remote-log-writer/
+
 deploy-logforwarder-external:
 	bash $(CONFIG_DIR)/02-openshift-logging/serviceaccount.sh
-	@if [ -n "$$EXTERNAL_LOKI_BEARER_TOKEN" ]; then \
-		$(SCRIPTS_DIR)/create-external-loki-bearer-secret.sh; \
+	@if [ -n "$$TO_LOKI_TOKEN" ] && [ -n "$$HUB_LOKI_CA_FILE" ]; then \
+		$(SCRIPTS_DIR)/create-to-loki-secret.sh; \
 	fi
 	oc apply -f $(CONFIG_DIR)/02-openshift-logging/clusterlogforwarder-external-loki.yaml
 
@@ -87,4 +91,4 @@ verify:
 
 .PHONY: install-loki approve-loki deploy-lokistack deploy-loki-obc deploy-loki-secret deploy-lokistack-cr \
 	install-logging install-logging-v6 approve-logging deploy-logforwarder deploy-logforwarder-external \
-	install-coo deploy-uiplugin verify
+	apply-hub-remote-log-writer install-coo deploy-uiplugin verify

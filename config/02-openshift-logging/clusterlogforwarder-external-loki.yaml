@@ -1,9 +1,6 @@
-# Forward logs from this cluster (spoke) to Loki on the hub.
-# 1. Create Secret loki-external-bearer-token (key: token) — see secret-external-loki-bearer.example.yaml
-#    or scripts/create-external-loki-bearer-secret.sh
-# 2. Set loki.url to the hub Loki push endpoint.
-# 3. Adjust tls if the hub gateway is not signed by the spoke cluster’s service CA.
-# OCP 4.20 — observability.openshift.io / Logging 6.x
+# SPOKE: forward logs to Loki on the hub.
+# HUB setup + spoke Secret to-loki-secret — see README “External Loki: token from hub”.
+# Logging 6.x (observability.openshift.io/v1)
 apiVersion: observability.openshift.io/v1
 kind: ClusterLogForwarder
 metadata:
@@ -21,12 +18,12 @@ spec:
           token:
             from: secret
             secret:
-              name: loki-external-bearer-token
+              name: to-loki-secret
               key: token
       tls:
         ca:
-          key: service-ca.crt
-          configMapName: openshift-service-ca.crt
+          key: ca-bundle.crt
+          secretName: to-loki-secret
   pipelines:
     - name: default
       inputRefs:
