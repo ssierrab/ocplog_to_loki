@@ -394,6 +394,10 @@ With `oc` on the cluster where **Step 1** and LokiStack run:
 
 ### After removal
 
+- **PVCs and PVs:** They are **not guaranteed** to disappear just because you deleted subscriptions or namespaces. When you delete the **LokiStack**, the Loki Operator normally deletes the **PVCs** it created (this repo sets **`storageClassName: ocs-storagecluster-ceph-rbd`** on the LokiStack for those volumes). Whether the cluster removes the backing **PV** depends on the **StorageClass** **`reclaimPolicy`**: with **`Delete`**, the provisioner typically reclaims storage when the PVC is gone; with **`Retain`**, PVs often stay in **Released** until an administrator deletes them (data may remain on the backend). After teardown, check **`oc get pvc -n openshift-logging`** and **`oc get pv`** (including **Released**) and clean up anything your policy requires.
+
+- **Object storage (ODF):** Chunk storage uses the **ObjectBucketClaim** **`loki-bucket-odf`**. Deleting the OBC starts bucket cleanup per ODF/NooBaa behavior; it may not be immediate, and finalizers or errors can require extra steps in ODF tooling. This is separate from RBD PVs above.
+
 - **Namespaces** (`openshift-logging`, `openshift-operators-redhat`): this guide does not delete them. Remove them only if nothing else in the cluster needs them and your administrators allow it; deleting `openshift-logging` while other workloads depend on it can break the cluster.  
 - **OperatorGroups** under `config/01-loki-operator/` and `config/02-openshift-logging/`: delete only if you are uninstalling every operator that uses that namespace’s OperatorGroup.  
 - Re-run **`oc get pods -n openshift-logging`** and **`oc get csv -A | grep -E 'loki|cluster-logging|cluster-observability'`** to confirm resources are gone.
