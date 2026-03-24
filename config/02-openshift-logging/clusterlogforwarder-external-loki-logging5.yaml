@@ -1,6 +1,7 @@
 # SPOKE: forward to hub Loki — logging.openshift.io / Logging 5.x
 # Secret to-loki-secret: keys token (raw JWT) and ca-bundle.crt (hub gateway CA PEM).
-# If your release only supports a single secret reference, ensure both keys exist in to-loki-secret.
+# LokiStack gateway (openshift-logging tenants): use per-tenant URLs, not .../loki/api/v1/push alone.
+#
 apiVersion: logging.openshift.io/v1
 kind: ClusterLogForwarder
 metadata:
@@ -8,9 +9,19 @@ metadata:
   namespace: openshift-logging
 spec:
   outputs:
-    - name: external-loki
+    - name: external-loki-application
       type: loki
-      url: https://<loki-gateway-on-hub>/loki/api/v1/push
+      url: https://<loki-gateway-on-hub>/api/logs/v1/application/loki/api/v1/push
+      secret:
+        name: to-loki-secret
+    - name: external-loki-infrastructure
+      type: loki
+      url: https://<loki-gateway-on-hub>/api/logs/v1/infrastructure/loki/api/v1/push
+      secret:
+        name: to-loki-secret
+    - name: external-loki-audit
+      type: loki
+      url: https://<loki-gateway-on-hub>/api/logs/v1/audit/loki/api/v1/push
       secret:
         name: to-loki-secret
   pipelines:
@@ -18,14 +29,14 @@ spec:
       inputRefs:
         - application
       outputRefs:
-        - external-loki
+        - external-loki-application
     - name: infrastructure
       inputRefs:
         - infrastructure
       outputRefs:
-        - external-loki
+        - external-loki-infrastructure
     - name: audit
       inputRefs:
         - audit
       outputRefs:
-        - external-loki
+        - external-loki-audit

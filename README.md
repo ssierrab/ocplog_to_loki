@@ -222,16 +222,29 @@ Use when Loki runs on the **hub** and this **spoke** collects logs. Authenticati
    oc create token remote-log-writer -n openshift-logging --duration=24h
    ```
 
-3. **Hub gateway CA (PEM)** for the spoke to verify TLS. Usually the Loki gateway uses the OpenShift **service CA**; on the hub save to a file (e.g. `hub-service-ca.crt`):
+3. **Hub gateway CA (PEM)** for the spoke to verify TLS to **`https://<route-host>/...`**.
 
-   ```bash
-   oc get configmap openshift-service-ca.crt -n openshift-logging \
-     -o jsonpath='{.data.service-ca\.crt}' > hub-service-ca.crt
-   ```
+   - If the push URL uses an **OpenShift Route** (`*.apps.<cluster>`), the certificate is signed by the **default ingress / router CA**, not the in-namespace **service CA**. On the **hub**:
 
-   If that ConfigMap is missing, use the PEM that signed your route/ingress for the Loki gateway.
+     ```bash
+     oc get secret router-ca -n openshift-ingress-operator -o jsonpath='{.data.tls\.crt}' | base64 -d > hub-loki-tls-ca.crt
+     ```
 
-4. **Push URL** for the ClusterLogForwarder on the spoke: `https://<loki-gateway-host>/loki/api/v1/push` (e.g. from `oc get route -n openshift-logging` on the hub).
+     Confirm with `openssl s_client -servername <route-host> -connect <route-host>:443 -CAfile hub-loki-tls-ca.crt` → **`Verify return code: 0`**.
+
+   - If you use **in-cluster Service DNS** and **service CA**-signed TLS only, you can use **`openshift-service-ca.crt`** from **`openshift-logging`** instead.
+
+4. **Push URLs** (Red Hat **LokiStack gateway** with **`tenants.mode: openshift-logging`**): the Route does **not** serve **`/loki/api/v1/push`** at the host root (that yields **404**). The collector must use **one URL per tenant**:
+
+   | Input / tenant      | Path on the gateway host |
+   |---------------------|---------------------------|
+   | `application`       | `/api/logs/v1/application/loki/api/v1/push` |
+   | `infrastructure`  | `/api/logs/v1/infrastructure/loki/api/v1/push` |
+   | `audit`             | `/api/logs/v1/audit/loki/api/v1/push` |
+
+   Hostname from the hub: `oc get route logging-loki -n openshift-logging -o jsonpath='{.spec.host}{"\n"}'`. Example: `https://logging-loki-openshift-logging.apps.example.com/api/logs/v1/application/loki/api/v1/push`.
+
+   Verify from a jumphost (optional): `curl` **POST** with **`Authorization: Bearer <token>`** and a minimal Loki JSON body should return **204** for each path when the CA and token are correct.
 
 **On the spoke** (after 2.3; do **not** install Loki or LokiStack here):
 
@@ -243,17 +256,17 @@ Use when Loki runs on the **hub** and this **spoke** collects logs. Authenticati
 
 2. **Secret `to-loki-secret`** in `openshift-logging`:
    - **`token`**: raw JWT from the hub (not `Bearer <jwt>`).
-   - **`ca-bundle.crt`**: same PEM as `hub-service-ca.crt` (copy the file to the spoke or paste contents).
+   - **`ca-bundle.crt`**: PEM that trusts the **Route** (usually **`router-ca`** from step 3) or **service CA** if you use only in-cluster URLs.
 
    ```bash
    oc create secret generic to-loki-secret -n openshift-logging \
      --from-literal=token="<PASTE_RAW_JWT_FROM_HUB>" \
-     --from-file=ca-bundle.crt=hub-service-ca.crt
+     --from-file=ca-bundle.crt=hub-loki-tls-ca.crt
    ```
 
    Template: `config/02-openshift-logging/to-loki-secret.example.yaml`.
 
-3. Edit **`clusterlogforwarder-external-loki.yaml`** (Logging 6.x): set **`spec.outputs[0].loki.url`** to the hub push URL. The manifest references **`to-loki-secret`** for token and TLS CA (`ca-bundle.crt`).
+3. Edit **`clusterlogforwarder-external-loki.yaml`** (Logging 6.x): replace **`<loki-gateway-on-hub>`** in **all three** **`spec.outputs[].loki.url`** values with the hub **Route host** (no `https://` duplicate — the placeholder is only the host). The manifest uses **three outputs** and **three pipelines** (application / infrastructure / audit) matching step 4.
 
 4. Apply the forwarder:
    - **Logging 6.x:** `oc apply -f config/02-openshift-logging/clusterlogforwarder-external-loki.yaml`

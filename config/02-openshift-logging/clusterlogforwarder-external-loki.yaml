@@ -1,6 +1,13 @@
-# SPOKE: forward logs to Loki on the hub.
-# HUB setup + spoke Secret to-loki-secret — see README “External Loki: token from hub”.
+# SPOKE: forward logs to Loki on the hub (Red Hat LokiStack with gateway + openshift-logging tenants).
+# HUB setup + spoke Secret to-loki-secret — see README §2.4.2.
 # Logging 6.x (observability.openshift.io/v1)
+#
+# The gateway does NOT serve /loki/api/v1/push at the route root. Use per-tenant paths:
+#   https://<route-host>/api/logs/v1/application/loki/api/v1/push
+#   https://<route-host>/api/logs/v1/infrastructure/loki/api/v1/push
+#   https://<route-host>/api/logs/v1/audit/loki/api/v1/push
+# Replace <loki-gateway-on-hub> with oc get route logging-loki -n openshift-logging (host only, no path).
+#
 apiVersion: observability.openshift.io/v1
 kind: ClusterLogForwarder
 metadata:
@@ -10,10 +17,38 @@ spec:
   serviceAccount:
     name: logcollector
   outputs:
-    - name: external-loki
+    - name: external-loki-application
       type: loki
       loki:
-        url: https://<loki-gateway-on-hub>/loki/api/v1/push
+        url: https://<loki-gateway-on-hub>/api/logs/v1/application/loki/api/v1/push
+        authentication:
+          token:
+            from: secret
+            secret:
+              name: to-loki-secret
+              key: token
+      tls:
+        ca:
+          key: ca-bundle.crt
+          secretName: to-loki-secret
+    - name: external-loki-infrastructure
+      type: loki
+      loki:
+        url: https://<loki-gateway-on-hub>/api/logs/v1/infrastructure/loki/api/v1/push
+        authentication:
+          token:
+            from: secret
+            secret:
+              name: to-loki-secret
+              key: token
+      tls:
+        ca:
+          key: ca-bundle.crt
+          secretName: to-loki-secret
+    - name: external-loki-audit
+      type: loki
+      loki:
+        url: https://<loki-gateway-on-hub>/api/logs/v1/audit/loki/api/v1/push
         authentication:
           token:
             from: secret
@@ -25,10 +60,18 @@ spec:
           key: ca-bundle.crt
           secretName: to-loki-secret
   pipelines:
-    - name: default
+    - name: application
       inputRefs:
         - application
+      outputRefs:
+        - external-loki-application
+    - name: infrastructure
+      inputRefs:
         - infrastructure
+      outputRefs:
+        - external-loki-infrastructure
+    - name: audit
+      inputRefs:
         - audit
       outputRefs:
-        - external-loki
+        - external-loki-audit
