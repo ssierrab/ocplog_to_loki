@@ -234,17 +234,20 @@ Use when Loki runs on the **hub** and this **spoke** collects logs. Authenticati
 
    - If you use **in-cluster Service DNS** and **service CA**-signed TLS only, you can use **`openshift-service-ca.crt`** from **`openshift-logging`** instead.
 
-4. **Push URLs** (Red Hat **LokiStack gateway** with **`tenants.mode: openshift-logging`**): the Route does **not** serve **`/loki/api/v1/push`** at the host root (that yields **404**). The collector must use **one URL per tenant**:
+4. **Push URLs** (Red Hat **LokiStack gateway** with **`tenants.mode: openshift-logging`**): the Route does **not** serve **`/loki/api/v1/push`** at the host root. The **real** ingest URL is **`/api/logs/v1/<tenant>/loki/api/v1/push`**.
 
-   | Input / tenant      | Path on the gateway host |
-   |---------------------|---------------------------|
-   | `application`       | `/api/logs/v1/application/loki/api/v1/push` |
-   | `infrastructure`  | `/api/logs/v1/infrastructure/loki/api/v1/push` |
-   | `audit`             | `/api/logs/v1/audit/loki/api/v1/push` |
+   **ClusterLogForwarder `loki.url` (Logging 6.x):** The collector’s **Vector** Loki sink sets **`endpoint`** from this field and **appends `/loki/api/v1/push` itself** ([Vector Loki sink](https://vector.dev/docs/reference/configuration/sinks/loki)). If you put the **full** path in `loki.url`, requests become **`.../loki/api/v1/push/loki/api/v1/push`** and the gateway returns **404**. Use the **tenant base only** (no trailing `/loki/api/v1/push`):
 
-   Hostname from the hub: `oc get route logging-loki -n openshift-logging -o jsonpath='{.spec.host}{"\n"}'`. Example: `https://logging-loki-openshift-logging.apps.example.com/api/logs/v1/application/loki/api/v1/push`.
+   | Input / tenant     | Value for **`spec.outputs[].loki.url`** |
+   |--------------------|----------------------------------------|
+   | `application`      | `https://<route-host>/api/logs/v1/application` |
+   | `infrastructure` | `https://<route-host>/api/logs/v1/infrastructure` |
+   | `audit`            | `https://<route-host>/api/logs/v1/audit` |
 
-   Verify from a jumphost (optional): `curl` **POST** with **`Authorization: Bearer <token>`** and a minimal Loki JSON body should return **204** for each path when the CA and token are correct.
+   Hostname from the hub: `oc get route logging-loki -n openshift-logging -o jsonpath='{.spec.host}{"\n"}'`.
+
+   **Manual `curl` checks** must use the **full** path (Vector is not involved):  
+   `https://<route-host>/api/logs/v1/<tenant>/loki/api/v1/push` → expect **204** when CA and token are correct.
 
 **On the spoke** (after 2.3; do **not** install Loki or LokiStack here):
 
@@ -266,7 +269,7 @@ Use when Loki runs on the **hub** and this **spoke** collects logs. Authenticati
 
    Template: `config/02-openshift-logging/to-loki-secret.example.yaml`.
 
-3. Edit **`clusterlogforwarder-external-loki.yaml`** (Logging 6.x): replace **`<loki-gateway-on-hub>`** in **all three** **`spec.outputs[].loki.url`** values with the hub **Route host** (no `https://` duplicate — the placeholder is only the host). The manifest uses **three outputs** and **three pipelines** (application / infrastructure / audit) matching step 4.
+3. Edit **`clusterlogforwarder-external-loki.yaml`** (Logging 6.x): replace **`<loki-gateway-on-hub>`** in **all three** **`spec.outputs[].loki.url`** values with the hub **Route host**. URLs must end at **`/api/logs/v1/<tenant>`** — do **not** add **`/loki/api/v1/push`** (Vector adds it). **Three outputs** and **three pipelines** per step 4.
 
 4. Apply the forwarder:
    - **Logging 6.x:** `oc apply -f config/02-openshift-logging/clusterlogforwarder-external-loki.yaml`

@@ -2,11 +2,13 @@
 # HUB setup + spoke Secret to-loki-secret — see README §2.4.2.
 # Logging 6.x (observability.openshift.io/v1)
 #
-# The gateway does NOT serve /loki/api/v1/push at the route root. Use per-tenant paths:
-#   https://<route-host>/api/logs/v1/application/loki/api/v1/push
-#   https://<route-host>/api/logs/v1/infrastructure/loki/api/v1/push
-#   https://<route-host>/api/logs/v1/audit/loki/api/v1/push
-# Replace <loki-gateway-on-hub> with oc get route logging-loki -n openshift-logging (host only, no path).
+# Per-tenant gateway base (openshift-logging mode). Do NOT append /loki/api/v1/push here:
+# the collector's Vector Loki sink appends /loki/api/v1/push to loki.url automatically.
+#   https://<route-host>/api/logs/v1/application
+#   https://<route-host>/api/logs/v1/infrastructure
+#   https://<route-host>/api/logs/v1/audit
+# Manual curl tests use the full path .../loki/api/v1/push (see README).
+# Replace <loki-gateway-on-hub> with oc get route logging-loki -n openshift-logging (host only).
 #
 apiVersion: observability.openshift.io/v1
 kind: ClusterLogForwarder
@@ -20,7 +22,7 @@ spec:
     - name: external-loki-application
       type: loki
       loki:
-        url: https://<loki-gateway-on-hub>/api/logs/v1/application/loki/api/v1/push
+        url: https://<loki-gateway-on-hub>/api/logs/v1/application
         authentication:
           token:
             from: secret
@@ -34,7 +36,7 @@ spec:
     - name: external-loki-infrastructure
       type: loki
       loki:
-        url: https://<loki-gateway-on-hub>/api/logs/v1/infrastructure/loki/api/v1/push
+        url: https://<loki-gateway-on-hub>/api/logs/v1/infrastructure
         authentication:
           token:
             from: secret
@@ -48,7 +50,7 @@ spec:
     - name: external-loki-audit
       type: loki
       loki:
-        url: https://<loki-gateway-on-hub>/api/logs/v1/audit/loki/api/v1/push
+        url: https://<loki-gateway-on-hub>/api/logs/v1/audit
         authentication:
           token:
             from: secret
