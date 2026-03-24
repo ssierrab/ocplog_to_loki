@@ -89,6 +89,20 @@ make approve-loki
 # Or: ./scripts/approve-installplan.sh openshift-operators-redhat
 ```
 
+**OLM `Subscription` vs Open Cluster Management:** If the cluster has **Open Cluster Management (ACM)** installed, the short name `subscription` often maps to **`subscriptions.apps.open-cluster-management.io`**, not the operator catalog. Use the OLM kind explicitly:
+
+```bash
+oc get subscriptions.operators.coreos.com -n openshift-operators-redhat
+oc describe subscriptions.operators.coreos.com loki-operator -n openshift-operators-redhat
+```
+
+To remove or recreate only the **Loki** catalog subscription:
+
+```bash
+oc delete subscriptions.operators.coreos.com loki-operator -n openshift-operators-redhat
+oc apply -f config/01-loki-operator/loki-operator-subscription.yaml
+```
+
 ### 1.3 Verify Loki Operator
 
 ```bash
@@ -98,15 +112,28 @@ oc get pods -n openshift-operators-redhat | grep loki
 
 ### 1.3a CSV `Failed`: `TooManyOperatorGroups`
 
-If **`oc describe csv … loki-operator`** shows **`TooManyOperatorGroups`** (namespace has more than one OperatorGroup), remove the **extra** one this repository added — keep the OperatorGroup the cluster already had:
+If **`oc describe csv … loki-operator`** shows **`TooManyOperatorGroups`**, `openshift-operators-redhat` has more than one **OperatorGroup**. Remove the **extra** one this repository used to add (`loki-operator`); keep the platform **`openshift-operators-redhat-…`** group unless support says otherwise.
 
 ```bash
 oc get operatorgroup -n openshift-operators-redhat
 oc delete operatorgroup loki-operator -n openshift-operators-redhat
-oc delete csv loki-operator.v6.4.3 -n openshift-operators-redhat
+oc delete clusterserviceversions.operators.coreos.com loki-operator.v6.4.3 -n openshift-operators-redhat
 ```
 
-Adjust the CSV version if yours differs. The **Subscription** should create a new InstallPlan/CSV; approve if your subscription is Manual (`make approve-loki`). Wait until the Loki CSV is **Succeeded**, then continue with §1.4.
+Adjust the CSV version to match **`oc get clusterserviceversions.operators.coreos.com -n openshift-operators-redhat`**. Then approve a new InstallPlan if needed (`make approve-loki`). Wait until the Loki CSV is **Succeeded**, then continue with §1.4.
+
+### 1.3b `ResolutionFailed` / no InstallPlan for Loki
+
+If **`oc describe subscriptions.operators.coreos.com loki-operator`** shows **`ResolutionFailed`** with **`expected 1 OperatorGroup in the namespace, found 2`**, OLM will **not** create an InstallPlan until **`oc get operatorgroup -n openshift-operators-redhat`** shows **exactly one** OperatorGroup. Fix §1.3a first (delete duplicate `loki-operator` OperatorGroup, stop GitOps/Makefile from re-applying `openshift-operators-redhat-operatorgroup.yaml` on clusters that already have one).
+
+After only one OperatorGroup remains, recreate the subscription:
+
+```bash
+oc delete subscriptions.operators.coreos.com loki-operator -n openshift-operators-redhat
+oc apply -f config/01-loki-operator/loki-operator-subscription.yaml
+```
+
+Wait briefly, confirm **`ResolutionFailed`** is cleared, then **`oc get installplan -n openshift-operators-redhat`** and **`make approve-loki`**.
 
 ### 1.4 Deploy a LokiStack instance (ODF storage)
 
@@ -428,7 +455,7 @@ From the repository root. **OCP 4.20.**
 
 | Target | Description |
 |--------|-------------|
-| `make install-loki` | Namespaces + Loki Operator subscription (does **not** add an OperatorGroup — see §1.1) |
+| `make install-loki` | Namespaces + Loki Operator subscription (does **not** add an OperatorGroup — see 1.1) |
 | `make install-loki-operatorgroup` | Optional: apply `openshift-operators-redhat-operatorgroup.yaml` only if the namespace has **no** OperatorGroup |
 | `make approve-loki` | Approve pending InstallPlans in openshift-operators-redhat |
 | `make deploy-lokistack` | ODF: ObjectBucketClaim + secret script + LokiStack |
