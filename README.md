@@ -36,12 +36,12 @@ This guide supports **hub-and-spoke** topologies: Loki can run on the same clust
 ## Installation order (by scenario)
 
 **Internal (Loki on spoke):**  
-On the **spoke**: Loki Operator (namespaces, OperatorGroup, subscription) → LokiStack (ODF) → OpenShift Logging Operator → **§2.4.1** (ClusterLogForwarder to LokiStack) → Cluster Observability Operator → UIPlugin.
+On the **spoke**: Loki Operator (namespaces, OperatorGroup, subscription) → LokiStack (ODF) → OpenShift Logging Operator → **2.4.1** (ClusterLogForwarder to LokiStack) → Cluster Observability Operator → UIPlugin.
 
 **External (Loki on hub):**  
 1. On the **hub**: Step 1 (Loki Operator + LokiStack).  
-2. On the **spoke**: Step 2 through §2.3 (OpenShift Logging Operator only). Do **not** install Loki or LokiStack on the spoke.  
-3. **§2.4.2** (hub then spoke): hub `remote-log-writer`, JWT, gateway CA, push URL; spoke `to-loki-secret` and external ClusterLogForwarder.  
+2. On the **spoke**: Step 2 through 2.3 (OpenShift Logging Operator only). Do **not** install Loki or LokiStack on the spoke.  
+3. **2.4.2** (hub then spoke): hub `remote-log-writer`, JWT, gateway CA, push URL; spoke `to-loki-secret` and external ClusterLogForwarder.  
 4. Optionally on the **hub**: Step 3 (COO + UIPlugin for Observe → Logs).
 
 ---
@@ -169,7 +169,7 @@ oc get pods -n openshift-logging | grep cluster-logging
 
 ### 2.4 Configure logging to Loki
 
-Follow **§2.4.1** for internal Loki (LokiStack on this cluster) or **§2.4.2** for external Loki (forward to the hub).
+Follow **2.4.1** for internal Loki (LokiStack on this cluster) or **2.4.2** for external Loki (forward to the hub).
 
 #### 2.4.1 Internal — LokiStack on this spoke
 
@@ -231,7 +231,7 @@ Use when Loki runs on the **hub** and this **spoke** collects logs. Authenticati
 
 4. **Push URL** for the ClusterLogForwarder on the spoke: `https://<loki-gateway-host>/loki/api/v1/push` (e.g. from `oc get route -n openshift-logging` on the hub).
 
-**On the spoke** (after §2.3; do **not** install Loki or LokiStack here):
+**On the spoke** (after 2.3; do **not** install Loki or LokiStack here):
 
 1. Collector service account (log collection RBAC):
 
@@ -304,6 +304,102 @@ Ensure the `logging-loki` LokiStack name in the UIPlugin matches your LokiStack.
 
 ---
 
+## Removing this configuration
+
+These steps undo what this repository installs. Run commands with `oc` pointed at the correct cluster. Order matters: remove forwarding and UI first, then operators, then Loki and storage.
+
+**Which cluster:**  
+- **External Loki:** run **On the spoke** on each spoke; run **On the Loki cluster** on the hub.  
+- **Internal Loki:** run **both** subsections on the same cluster (it is both spoke and Loki host).
+
+If you used **Logging 5.x** with a **ClusterLogging** CR instead of only ClusterLogForwarder, delete that CR first (see Red Hat docs for your version).
+
+### On the spoke (log collection)
+
+With `oc` on the spoke:
+
+1. **ClusterLogForwarder** (this repo names it **`collector`**):
+
+   ```bash
+   oc delete clusterlogforwarder collector -n openshift-logging --ignore-not-found
+   ```
+
+2. **Secrets** (delete whichever you created):
+
+   ```bash
+   oc delete secret to-loki-secret -n openshift-logging --ignore-not-found
+   oc delete secret loki-stack-bearer-token -n openshift-logging --ignore-not-found
+   ```
+
+3. **`logcollector` ServiceAccount and cluster RBAC** (reverse of `serviceaccount.sh`):
+
+   ```bash
+   oc adm policy remove-cluster-role-from-user collect-application-logs system:serviceaccount:openshift-logging:logcollector
+   oc adm policy remove-cluster-role-from-user collect-infrastructure-logs system:serviceaccount:openshift-logging:logcollector
+   oc adm policy remove-cluster-role-from-user collect-audit-logs system:serviceaccount:openshift-logging:logcollector
+   oc adm policy remove-cluster-role-from-user cluster-logging-write-application-logs system:serviceaccount:openshift-logging:logcollector
+   oc adm policy remove-cluster-role-from-user cluster-logging-write-audit-logs system:serviceaccount:openshift-logging:logcollector
+   oc adm policy remove-cluster-role-from-user cluster-logging-write-infrastructure-logs system:serviceaccount:openshift-logging:logcollector
+   oc delete serviceaccount logcollector -n openshift-logging --ignore-not-found
+   ```
+
+4. **OpenShift Logging Operator** (subscription in `openshift-logging`):
+
+   ```bash
+   oc delete subscription cluster-logging -n openshift-logging --ignore-not-found
+   ```
+
+   Wait for the **cluster-logging** CSV to disappear from `openshift-logging`; if it remains, remove it (and any related InstallPlans) per your cluster policy.
+
+### On the Loki cluster (hub, or the spoke for internal Loki)
+
+With `oc` on the cluster where **Step 1** and LokiStack run:
+
+1. **Cluster Observability Operator (optional)** — only if you applied Step 3 here:
+
+   ```bash
+   oc delete uiplugin logging --ignore-not-found
+   oc delete subscription cluster-observability-operator -n openshift-operators --ignore-not-found
+   ```
+
+   Wait for the **cluster-observability-operator** CSV to leave `openshift-operators` if you removed the subscription.
+
+2. **Hub remote log writer** (external Loki only — skip on a pure internal spoke if you never ran `apply-hub-remote-log-writer`):
+
+   ```bash
+   oc delete secret remote-log-writer-token -n openshift-logging --ignore-not-found
+   oc delete clusterrolebinding remote-log-writer-cluster-logging-write-application-logs --ignore-not-found
+   oc delete clusterrolebinding remote-log-writer-cluster-logging-write-audit-logs --ignore-not-found
+   oc delete clusterrolebinding remote-log-writer-cluster-logging-write-infrastructure-logs --ignore-not-found
+   oc delete serviceaccount remote-log-writer -n openshift-logging --ignore-not-found
+   ```
+
+3. **LokiStack and ODF-backed storage objects** (names from this repo’s manifests):
+
+   ```bash
+   oc delete lokistack logging-loki -n openshift-logging --ignore-not-found
+   oc delete secret logging-loki-odf -n openshift-logging --ignore-not-found
+   oc delete objectbucketclaim loki-bucket-odf -n openshift-logging --ignore-not-found
+   ```
+
+   ODF may recreate or retain bucket data until the ObjectBucketClaim and related resources are fully released; resolve any finalizers or operator warnings if deletion hangs.
+
+4. **Loki Operator:**
+
+   ```bash
+   oc delete subscription loki-operator -n openshift-operators-redhat --ignore-not-found
+   ```
+
+   Wait for the Loki **CSV** to be removed from `openshift-operators-redhat`.
+
+### After removal
+
+- **Namespaces** (`openshift-logging`, `openshift-operators-redhat`): this guide does not delete them. Remove them only if nothing else in the cluster needs them and your administrators allow it; deleting `openshift-logging` while other workloads depend on it can break the cluster.  
+- **OperatorGroups** under `config/01-loki-operator/` and `config/02-openshift-logging/`: delete only if you are uninstalling every operator that uses that namespace’s OperatorGroup.  
+- Re-run **`oc get pods -n openshift-logging`** and **`oc get csv -A | grep -E 'loki|cluster-logging|cluster-observability'`** to confirm resources are gone.
+
+---
+
 ## Makefile targets
 
 From the repository root. **OCP 4.20.**
@@ -327,8 +423,8 @@ From the repository root. **OCP 4.20.**
 `make install-loki approve-loki deploy-lokistack install-logging approve-logging deploy-logforwarder install-coo deploy-uiplugin`
 
 **External (Loki on hub):**  
-- On the **hub**: `make install-loki approve-loki deploy-lokistack`, then **§2.4.2 (On the hub)** (`make apply-hub-remote-log-writer`, token, CA, push URL). Optionally `install-coo deploy-uiplugin` for Observe → Logs on the hub.  
-- On the **spoke**: `make install-logging approve-logging`, then **§2.4.2 (On the spoke)** (`to-loki-secret`, hub URL in the manifest, apply forwarder or `make deploy-logforwarder-external`).
+- On the **hub**: `make install-loki approve-loki deploy-lokistack`, then **2.4.2 (On the hub)** (`make apply-hub-remote-log-writer`, token, CA, push URL). Optionally `install-coo deploy-uiplugin` for Observe → Logs on the hub.  
+- On the **spoke**: `make install-logging approve-logging`, then **2.4.2 (On the spoke)** (`to-loki-secret`, hub URL in the manifest, apply forwarder or `make deploy-logforwarder-external`).
 
 ---
 
