@@ -89,70 +89,12 @@ make approve-loki
 # Or: ./scripts/approve-installplan.sh openshift-operators-redhat
 ```
 
-**OLM `Subscription` vs Open Cluster Management:** If the cluster has **Open Cluster Management (ACM)** installed, the short name `subscription` often maps to **`subscriptions.apps.open-cluster-management.io`**, not the operator catalog. Use the OLM kind explicitly:
-
-```bash
-oc get subscriptions.operators.coreos.com -n openshift-operators-redhat
-oc describe subscriptions.operators.coreos.com loki-operator -n openshift-operators-redhat
-```
-
-To remove or recreate only the **Loki** catalog subscription:
-
-```bash
-oc delete subscriptions.operators.coreos.com loki-operator -n openshift-operators-redhat
-oc apply -f config/01-loki-operator/loki-operator-subscription.yaml
-```
-
 ### 1.3 Verify Loki Operator
 
 ```bash
 oc get csv -n openshift-operators-redhat | grep loki
 oc get pods -n openshift-operators-redhat | grep loki
 ```
-
-### 1.3a CSV `Failed`: `TooManyOperatorGroups`
-
-If **`oc describe csv … loki-operator`** shows **`TooManyOperatorGroups`**, `openshift-operators-redhat` has more than one **OperatorGroup**. Remove the **extra** one this repository used to add (`loki-operator`); keep the platform **`openshift-operators-redhat-…`** group unless support says otherwise.
-
-```bash
-oc get operatorgroup -n openshift-operators-redhat
-oc delete operatorgroup loki-operator -n openshift-operators-redhat
-oc delete clusterserviceversions.operators.coreos.com loki-operator.v6.4.3 -n openshift-operators-redhat
-```
-
-Adjust the CSV version to match **`oc get clusterserviceversions.operators.coreos.com -n openshift-operators-redhat`**. Then approve a new InstallPlan if needed (`make approve-loki`). Wait until the Loki CSV is **Succeeded**, then continue with §1.4.
-
-### 1.3b `ResolutionFailed` / no InstallPlan for Loki
-
-If **`oc describe subscriptions.operators.coreos.com loki-operator`** shows **`ResolutionFailed`** with **`expected 1 OperatorGroup in the namespace, found 2`**, OLM will **not** create an InstallPlan until **`oc get operatorgroup -n openshift-operators-redhat`** shows **exactly one** OperatorGroup. Fix §1.3a first (delete duplicate `loki-operator` OperatorGroup, stop GitOps/Makefile from re-applying `openshift-operators-redhat-operatorgroup.yaml` on clusters that already have one).
-
-After only one OperatorGroup remains, recreate the subscription:
-
-```bash
-oc delete subscriptions.operators.coreos.com loki-operator -n openshift-operators-redhat
-oc apply -f config/01-loki-operator/loki-operator-subscription.yaml
-```
-
-Wait briefly, confirm **`ResolutionFailed`** is cleared, then **`oc get installplan -n openshift-operators-redhat`** and **`make approve-loki`**.
-
-If **`ResolutionFailed`** remains with **one** OperatorGroup, inspect the full condition **`message`**. For other causes (stuck CSV, catalog), use:
-
-```bash
-oc get subscriptions.operators.coreos.com loki-operator -n openshift-operators-redhat \
-  -o jsonpath='{range .status.conditions[*]}{.type}{"\t"}{.status}{"\t"}{.reason}{"\t"}{.message}{"\n"}{end}'
-```
-
-### 1.3c `ResolutionFailed`: no operators in channel `stable`
-
-If the **`message`** contains **`no operators found in channel stable of package loki-operator`** (reason **`ConstraintsNotSatisfiable`**), **`redhat-operators`** does not ship **`loki-operator`** on the legacy **`stable`** channel anymore. Use a **Logging 6.x** channel such as **`stable-6.4`** (see [Red Hat OpenShift Logging 6.4 — Installing logging](https://docs.redhat.com/en/documentation/red_hat_openshift_logging/6.4/html-single/installing_logging/index)); this repository’s **`loki-operator-subscription.yaml`** is set accordingly.
-
-List channels the API exposes for **`loki-operator`** (several catalogs can share the name — confirm **Red Hat Operators**):
-
-```bash
-oc describe packagemanifest loki-operator -n openshift-marketplace | grep -E 'Catalog|Channel|Entry'
-```
-
-Then re-apply the subscription (or **`oc patch subscriptions.operators.coreos.com loki-operator -n openshift-operators-redhat --type=merge -p '{"spec":{"channel":"stable-6.4"}}'`** if the file already matches).
 
 ### 1.4 Deploy a LokiStack instance (ODF storage)
 
