@@ -4,13 +4,18 @@
 CONFIG_DIR := config
 SCRIPTS_DIR := scripts
 
-# --- Loki Operator (namespaces, OperatorGroup, subscription) ---
+# --- Loki Operator (namespaces, subscription) ---
+# Do not apply openshift-operators-redhat-operatorgroup.yaml by default: the namespace
+# usually already has exactly one OperatorGroup; a second causes CSV Failed (TooManyOperatorGroups).
 LOKI_DIR := $(CONFIG_DIR)/01-loki-operator
 install-loki:
 	oc apply -f $(LOKI_DIR)/openshift-operators-redhat-namespace.yaml
-	oc apply -f $(LOKI_DIR)/openshift-operators-redhat-operatorgroup.yaml
 	oc apply -f $(LOKI_DIR)/openshift-logging-namespace.yaml
 	oc apply -f $(LOKI_DIR)/loki-operator-subscription.yaml
+
+# Only if: oc get operatorgroup -n openshift-operators-redhat → No resources found
+install-loki-operatorgroup:
+	oc apply -f $(LOKI_DIR)/openshift-operators-redhat-operatorgroup.yaml
 
 approve-loki:
 	@echo "Approving InstallPlans in openshift-operators-redhat..."
@@ -75,6 +80,8 @@ deploy-uiplugin:
 verify:
 	@echo "=== Namespaces ==="
 	@oc get ns openshift-operators-redhat openshift-logging 2>/dev/null || true
+	@echo "\n=== OperatorGroups (openshift-operators-redhat — expect exactly one) ==="
+	@oc get operatorgroup -n openshift-operators-redhat 2>/dev/null || true
 	@echo "\n=== Loki Operator (openshift-operators-redhat) ==="
 	@oc get csv -n openshift-operators-redhat 2>/dev/null | grep -E "NAME|loki" || true
 	@oc get pods -n openshift-operators-redhat 2>/dev/null | grep -E "NAME|loki" || true
@@ -85,6 +92,6 @@ verify:
 	@oc get csv -n openshift-operators 2>/dev/null | grep -E "NAME|cluster-observability" || true
 	@oc get uiplugin 2>/dev/null || true
 
-.PHONY: install-loki approve-loki deploy-lokistack deploy-loki-obc deploy-loki-secret deploy-lokistack-cr \
+.PHONY: install-loki install-loki-operatorgroup approve-loki deploy-lokistack deploy-loki-obc deploy-loki-secret deploy-lokistack-cr \
 	install-logging install-logging-v6 approve-logging deploy-logforwarder deploy-logforwarder-external \
 	apply-hub-remote-log-writer install-coo deploy-uiplugin verify

@@ -36,10 +36,10 @@ This guide supports **hub-and-spoke** topologies: Loki can run on the same clust
 ## Installation order (by scenario)
 
 **Internal (Loki on spoke):**  
-On the **spoke**: Loki Operator (namespaces, OperatorGroup, subscription) → LokiStack (ODF) → OpenShift Logging Operator → **2.4.1** (ClusterLogForwarder to LokiStack) → Cluster Observability Operator → UIPlugin.
+On the **spoke**: Loki Operator (namespaces, subscription) → LokiStack (ODF) → OpenShift Logging Operator → **2.4.1** (ClusterLogForwarder to LokiStack) → Cluster Observability Operator → UIPlugin.
 
 **External (Loki on hub):**  
-1. On the **hub**: Step 1 (Loki Operator + LokiStack).  
+1. On the **hub**: Step 1 (Loki namespaces + subscription + LokiStack).  
 2. On the **spoke**: Step 2 through 2.3 (OpenShift Logging Operator only). Do **not** install Loki or LokiStack on the spoke.  
 3. **2.4.2** (hub then spoke): hub `remote-log-writer`, JWT, gateway CA, push URL; spoke `to-loki-secret` and external ClusterLogForwarder.  
 4. Optionally on the **hub**: Step 3 (COO + UIPlugin for Observe → Logs).
@@ -54,9 +54,16 @@ On the **spoke**: Loki Operator (namespaces, OperatorGroup, subscription) → Lo
 
 Do **not** run this step on the spoke when using external Loki; the spoke only forwards logs to the hub.
 
-### 1.1 Create namespaces and OperatorGroup, then subscribe to the Loki Operator
+### 1.1 Create namespaces and subscribe to the Loki Operator
 
-All Loki-related resources (namespaces, **loki-operator** OperatorGroup, subscription) are in `config/01-loki-operator/`.
+Loki-related manifests live in `config/01-loki-operator/`.
+
+**OperatorGroup in `openshift-operators-redhat`:** That namespace must contain **at most one** OperatorGroup. OpenShift usually ships with one already. **`make install-loki` does not apply** `openshift-operators-redhat-operatorgroup.yaml` so you do not create a duplicate. Apply it **only** if `oc get operatorgroup -n openshift-operators-redhat` shows **no** resources (unusual lab clusters):
+
+```bash
+make install-loki-operatorgroup
+# or: oc apply -f config/01-loki-operator/openshift-operators-redhat-operatorgroup.yaml
+```
 
 **Using the Makefile:**
 
@@ -64,11 +71,10 @@ All Loki-related resources (namespaces, **loki-operator** OperatorGroup, subscri
 make install-loki
 ```
 
-**Using oc apply** (namespaces and OperatorGroup first, then subscription):
+**Using oc apply** (namespaces, then subscription — skip OperatorGroup unless none exists):
 
 ```bash
 oc apply -f config/01-loki-operator/openshift-operators-redhat-namespace.yaml
-oc apply -f config/01-loki-operator/openshift-operators-redhat-operatorgroup.yaml
 oc apply -f config/01-loki-operator/openshift-logging-namespace.yaml
 oc apply -f config/01-loki-operator/loki-operator-subscription.yaml
 ```
@@ -89,6 +95,18 @@ make approve-loki
 oc get csv -n openshift-operators-redhat | grep loki
 oc get pods -n openshift-operators-redhat | grep loki
 ```
+
+### 1.3a CSV `Failed`: `TooManyOperatorGroups`
+
+If **`oc describe csv … loki-operator`** shows **`TooManyOperatorGroups`** (namespace has more than one OperatorGroup), remove the **extra** one this repository added — keep the OperatorGroup the cluster already had:
+
+```bash
+oc get operatorgroup -n openshift-operators-redhat
+oc delete operatorgroup loki-operator -n openshift-operators-redhat
+oc delete csv loki-operator.v6.4.3 -n openshift-operators-redhat
+```
+
+Adjust the CSV version if yours differs. The **Subscription** should create a new InstallPlan/CSV; approve if your subscription is Manual (`make approve-loki`). Wait until the Loki CSV is **Succeeded**, then continue with §1.4.
 
 ### 1.4 Deploy a LokiStack instance (ODF storage)
 
@@ -410,7 +428,8 @@ From the repository root. **OCP 4.20.**
 
 | Target | Description |
 |--------|-------------|
-| `make install-loki` | Namespaces, **loki-operator** OperatorGroup, Loki Operator subscription (cluster where Loki runs) |
+| `make install-loki` | Namespaces + Loki Operator subscription (does **not** add an OperatorGroup — see §1.1) |
+| `make install-loki-operatorgroup` | Optional: apply `openshift-operators-redhat-operatorgroup.yaml` only if the namespace has **no** OperatorGroup |
 | `make approve-loki` | Approve pending InstallPlans in openshift-operators-redhat |
 | `make deploy-lokistack` | ODF: ObjectBucketClaim + secret script + LokiStack |
 | `make install-logging` | Namespace, **cluster-logging** OperatorGroup, OpenShift Logging Operator subscription (5.x) |
@@ -439,7 +458,7 @@ ocplog_to_loki/
 ├── README.md                 # This guide (OCP 4.20, internal + external Loki)
 ├── Makefile                  # Targets for apply and verify
 ├── config/
-│   ├── 01-loki-operator/     # Namespaces, loki-operator OperatorGroup, subscription, LokiStack, OBC
+│   ├── 01-loki-operator/     # Namespaces, optional OperatorGroup manifest, subscription, LokiStack, OBC
 │   ├── 02-openshift-logging/ # ClusterLogForwarder, SA, to-loki-secret example, hub-remote-log-writer/
 │   └── 03-cluster-observability-operator/ # COO subscription, UIPlugin
 └── scripts/

@@ -1,4 +1,6 @@
-# Used by Loki Operator subscription.
+# Optional: only apply when openshift-operators-redhat has NO OperatorGroup yet.
+# OpenShift normally provides one; adding this on top causes CSV Failed: TooManyOperatorGroups.
+# See README Step 1.1 and target: make install-loki-operatorgroup
 apiVersion: operators.coreos.com/v1
 kind: OperatorGroup
 metadata:
