@@ -36,11 +36,13 @@ This guide supports **hub-and-spoke** topologies: Loki can run on the same clust
 ## Installation order (by scenario)
 
 **Internal (Loki on spoke):**  
-On the **spoke**: Loki Operator (namespaces, OperatorGroup, subscription) → LokiStack (ODF) → OpenShift Logging Operator → ClusterLogForwarder (to LokiStack) → Cluster Observability Operator → UIPlugin.
+On the **spoke**: Loki Operator (namespaces, OperatorGroup, subscription) → LokiStack (ODF) → OpenShift Logging Operator → **§2.4.1** (ClusterLogForwarder to LokiStack) → Cluster Observability Operator → UIPlugin.
 
 **External (Loki on hub):**  
-1. On the **hub**: Loki Operator (namespaces, OperatorGroup, subscription) → LokiStack (ODF). Optionally COO + UIPlugin for Observe → Logs on the hub.  
-2. On the **spoke**: OpenShift Logging Operator (namespace, OperatorGroup, subscription) only → ClusterLogForwarder (to hub Loki URL). Do **not** install Loki Operator or LokiStack on the spoke.
+1. On the **hub**: Step 1 (Loki Operator + LokiStack).  
+2. On the **spoke**: Step 2 through §2.3 (OpenShift Logging Operator only). Do **not** install Loki or LokiStack on the spoke.  
+3. **§2.4.2** (hub then spoke): hub `remote-log-writer`, JWT, gateway CA, push URL; spoke `to-loki-secret` and external ClusterLogForwarder.  
+4. Optionally on the **hub**: Step 3 (COO + UIPlugin for Observe → Logs).
 
 ---
 
@@ -122,98 +124,6 @@ oc get pods -n openshift-logging | grep loki
 
 ---
 
-## Step 1b: External Loki – hub token + spoke Secret `to-loki-secret`
-
-Use this when Loki runs on the **hub** and a **spoke** forwards logs to it. Authentication uses a **Bearer token** stored in a **Secret** on the spoke (`to-loki-secret`), plus the **hub CA** so the spoke trusts the hub gateway TLS.
-
-### On the hub
-
-1. **Create the ServiceAccount** `remote-log-writer` in `openshift-logging` (and grant roles used to push through the LokiStack gateway):
-
-   ```bash
-   make apply-hub-remote-log-writer
-   # or: oc apply -f config/02-openshift-logging/hub-remote-log-writer/
-   ```
-
-   The manifests bind **`cluster-logging-write-application-logs`**, **`cluster-logging-write-audit-logs`**, and **`cluster-logging-write-infrastructure-logs`** to that service account (same write model as the in-cluster log collector).
-
-2. **Obtain a token** for `remote-log-writer` and **copy the raw JWT** for use on the spoke (in **`to-loki-secret`**, key **`token`**). Store **only the JWT string**—do **not** prefix with `Bearer `; the forwarder sends `Authorization: Bearer` automatically.
-
-   Choose **one** approach:
-
-   **Method 1 — Long-lived token (Secret on the hub that holds the token until rotated)**  
-   Create a `kubernetes.io/service-account-token` Secret; the control plane populates **`data.token`** with a JWT that stays valid until the Secret is deleted or replaced (no `--duration` window like bounded tokens).
-
-   If you already ran `make apply-hub-remote-log-writer`, **`03-long-lived-token-secret.yaml`** is applied with the SA and RBAC. Otherwise:
-
-   ```bash
-   oc apply -f config/02-openshift-logging/hub-remote-log-writer/
-   ```
-
-   Then read the JWT (still **no `Bearer `** prefix on the spoke):
-
-   ```bash
-   oc wait --for=jsonpath='{.data.token}' secret/remote-log-writer-token -n openshift-logging --timeout=120s
-   oc get secret remote-log-writer-token -n openshift-logging -o jsonpath='{.data.token}' | base64 -d
-   ```
-
-   Copy the printed JWT into **`to-loki-secret`** on the spoke. If you use **Method 2** instead, you can skip using this Secret on the hub (you may still apply the whole directory; the unused Secret is harmless, or apply only `01-serviceaccount.yaml` and `02-rbac.yaml`).
-
-   **Method 2 — Short-lived token (`oc create token`)**  
-   Issue a bounded token with an explicit lifetime. Simpler for trials; you must **re-issue before expiry** and **update `to-loki-secret`** on the spoke (or automation), or forwarding will fail with 401.
-
-   ```bash
-   # Example: 24 hours — adjust --duration as your policy allows (e.g. 168h, 720h)
-   oc create token remote-log-writer -n openshift-logging --duration=24h
-   ```
-
-   Use whichever method fits your security and operations model.
-
-3. **Extract the hub gateway CA** (PEM) for TLS verification from the spoke. Usually the Loki gateway uses the OpenShift **service CA**; export it from the hub into a file (example name `hub-service-ca.crt`):
-
-   ```bash
-   oc get configmap openshift-service-ca.crt -n openshift-logging \
-     -o jsonpath='{.data.service-ca\.crt}' > hub-service-ca.crt
-   ```
-
-   If that ConfigMap is not present yet, use another source for the PEM that signed the route/gateway you use (e.g. ingress CA or your documented hub trust bundle).
-
-4. **Hub Loki URL:** After LokiStack is up, resolve the gateway route/host (e.g. `oc get route -n openshift-logging`) and use `https://<host>/loki/api/v1/push` in the ClusterLogForwarder on the spoke.
-
-### On the spoke
-
-1. Do **not** install the Loki Operator or LokiStack on the spoke.
-
-2. Create the collector service account (log collection RBAC):
-
-   ```bash
-   bash config/02-openshift-logging/serviceaccount.sh
-   ```
-
-3. **Create Secret `to-loki-secret`** in `openshift-logging` with:
-   - **`token`**: raw JWT from the hub step (not `Bearer <jwt>`).
-   - **`ca-bundle.crt`**: PEM file from the hub step (same content as `hub-service-ca.crt`).
-
-   ```bash
-   oc create secret generic to-loki-secret -n openshift-logging \
-     --from-literal=token="<PASTE_RAW_JWT_FROM_HUB>" \
-     --from-file=ca-bundle.crt=hub-service-ca.crt
-   ```
-
-   Template: `config/02-openshift-logging/to-loki-secret.example.yaml`.
-
-4. Edit **`clusterlogforwarder-external-loki.yaml`** (Logging 6.x) and set **`spec.outputs[0].loki.url`** to the hub push URL. The manifest references **`to-loki-secret`** for both **token** and **TLS CA** (`ca-bundle.crt`).
-
-5. Apply the forwarder:
-   - **Logging 6.x:** `oc apply -f config/02-openshift-logging/clusterlogforwarder-external-loki.yaml`
-   - **Logging 5.x:** `oc apply -f config/02-openshift-logging/clusterlogforwarder-external-loki-logging5.yaml` (same Secret name; confirm secret key names for your release).
-
-**Connectivity:** The spoke must resolve and reach the hub gateway hostname (DNS / routes / firewall).
-
-**Makefile:** `make apply-hub-remote-log-writer` (on hub). On spoke: create **`to-loki-secret`** as above, then `make deploy-logforwarder-external` (collector SA + apply external ClusterLogForwarder).
-
----
-
 ## Step 2: Install Red Hat OpenShift Logging Operator (on the cluster that collects logs)
 
 **Where:** On the **spoke** in both scenarios (the cluster that produces the logs). For internal, install after Loki is ready on that same spoke. For external, the hub does not need the Logging Operator for receiving logs; only the spoke does.
@@ -259,18 +169,97 @@ oc get pods -n openshift-logging | grep cluster-logging
 
 ### 2.4 Configure logging to Loki
 
-- **Internal (LokiStack on this spoke)**  
-  - **Logging 6.x**: Create the `logcollector` service account, create the **Bearer token Secret** for LokiStack, then apply the ClusterLogForwarder:
-    ```bash
-    bash config/02-openshift-logging/serviceaccount.sh
-    ./scripts/create-lokistack-bearer-secret.sh
-    oc apply -f config/02-openshift-logging/clusterlogforwarder.yaml
-    ```
-    **LokiStack auth** uses a token from a **Secret** (`lokiStack.authentication.token.from: secret`), Secret **`loki-stack-bearer-token`**, key **`token`**. The script fills it using `oc create token logcollector` (or a legacy SA token). `spec.serviceAccount.name: logcollector` is still required for the collector pods. Re-run `create-lokistack-bearer-secret.sh` to rotate. Manual template: `config/02-openshift-logging/secret-lokistack-bearer.example.yaml`.
-  - **Logging 5.x**: Use a ClusterLogging CR with `logStore.type: lokistack` and `logStore.lokistack.name: logging-loki` (see Red Hat documentation), or use the ClusterLogForwarder if your 5.x version supports it.
+Follow **§2.4.1** for internal Loki (LokiStack on this cluster) or **§2.4.2** for external Loki (forward to the hub).
 
-- **External (forward to hub’s Loki)**  
-  See **Step 1b** above (ClusterLogForwarder with `type: loki` and the hub’s Loki URL).
+#### 2.4.1 Internal — LokiStack on this spoke
+
+- **Logging 6.x**: Create the `logcollector` service account, create the **Bearer token Secret** for LokiStack, then apply the ClusterLogForwarder:
+
+  ```bash
+  bash config/02-openshift-logging/serviceaccount.sh
+  ./scripts/create-lokistack-bearer-secret.sh
+  oc apply -f config/02-openshift-logging/clusterlogforwarder.yaml
+  ```
+
+  **LokiStack auth** uses a token from a **Secret** (`lokiStack.authentication.token.from: secret`), Secret **`loki-stack-bearer-token`**, key **`token`**. The script fills it using `oc create token logcollector` (or a legacy SA token). `spec.serviceAccount.name: logcollector` is still required for the collector pods. Re-run `create-lokistack-bearer-secret.sh` to rotate. Manual template: `config/02-openshift-logging/secret-lokistack-bearer.example.yaml`.
+
+- **Logging 5.x**: Use a ClusterLogging CR with `logStore.type: lokistack` and `logStore.lokistack.name: logging-loki` (see Red Hat documentation), or use the ClusterLogForwarder if your 5.x version supports it.
+
+#### 2.4.2 External — forward to Loki on the hub
+
+Use when Loki runs on the **hub** and this **spoke** collects logs. Authentication is a **Bearer token** in Secret **`to-loki-secret`** on the spoke (key **`token`**) plus **hub CA** PEM (key **`ca-bundle.crt`**) so the spoke trusts the hub Loki gateway TLS. Complete the **hub** subsection first (with `oc` on the hub), then the **spoke** subsection.
+
+**On the hub** (after Step 1 and LokiStack are healthy):
+
+1. **ServiceAccount `remote-log-writer`** in `openshift-logging` and roles for pushing through the LokiStack gateway:
+
+   ```bash
+   make apply-hub-remote-log-writer
+   # or: oc apply -f config/02-openshift-logging/hub-remote-log-writer/
+   ```
+
+   The manifests bind **`cluster-logging-write-application-logs`**, **`cluster-logging-write-audit-logs`**, and **`cluster-logging-write-infrastructure-logs`** to that service account (same write model as the in-cluster log collector).
+
+2. **Obtain a token** for `remote-log-writer` and **copy the raw JWT** for the spoke Secret. Store **only the JWT**—do **not** prefix with `Bearer `; the forwarder adds `Authorization: Bearer` automatically.
+
+   **Method 1 — Long-lived token (Secret on the hub)**  
+   If you ran `make apply-hub-remote-log-writer`, **`03-long-lived-token-secret.yaml`** is included. Otherwise: `oc apply -f config/02-openshift-logging/hub-remote-log-writer/`. Then:
+
+   ```bash
+   oc wait --for=jsonpath='{.data.token}' secret/remote-log-writer-token -n openshift-logging --timeout=120s
+   oc get secret remote-log-writer-token -n openshift-logging -o jsonpath='{.data.token}' | base64 -d
+   ```
+
+   If you use **Method 2** instead, the long-lived Secret on the hub is optional (unused Secret is harmless, or apply only `01-serviceaccount.yaml` and `02-rbac.yaml`).
+
+   **Method 2 — Short-lived token (`oc create token`)**  
+   Bounded lifetime; **re-issue before expiry** and **update `to-loki-secret`** on the spoke or forwarding returns 401.
+
+   ```bash
+   # Example: 24 hours — adjust --duration per policy (e.g. 168h, 720h)
+   oc create token remote-log-writer -n openshift-logging --duration=24h
+   ```
+
+3. **Hub gateway CA (PEM)** for the spoke to verify TLS. Usually the Loki gateway uses the OpenShift **service CA**; on the hub save to a file (e.g. `hub-service-ca.crt`):
+
+   ```bash
+   oc get configmap openshift-service-ca.crt -n openshift-logging \
+     -o jsonpath='{.data.service-ca\.crt}' > hub-service-ca.crt
+   ```
+
+   If that ConfigMap is missing, use the PEM that signed your route/ingress for the Loki gateway.
+
+4. **Push URL** for the ClusterLogForwarder on the spoke: `https://<loki-gateway-host>/loki/api/v1/push` (e.g. from `oc get route -n openshift-logging` on the hub).
+
+**On the spoke** (after §2.3; do **not** install Loki or LokiStack here):
+
+1. Collector service account (log collection RBAC):
+
+   ```bash
+   bash config/02-openshift-logging/serviceaccount.sh
+   ```
+
+2. **Secret `to-loki-secret`** in `openshift-logging`:
+   - **`token`**: raw JWT from the hub (not `Bearer <jwt>`).
+   - **`ca-bundle.crt`**: same PEM as `hub-service-ca.crt` (copy the file to the spoke or paste contents).
+
+   ```bash
+   oc create secret generic to-loki-secret -n openshift-logging \
+     --from-literal=token="<PASTE_RAW_JWT_FROM_HUB>" \
+     --from-file=ca-bundle.crt=hub-service-ca.crt
+   ```
+
+   Template: `config/02-openshift-logging/to-loki-secret.example.yaml`.
+
+3. Edit **`clusterlogforwarder-external-loki.yaml`** (Logging 6.x): set **`spec.outputs[0].loki.url`** to the hub push URL. The manifest references **`to-loki-secret`** for token and TLS CA (`ca-bundle.crt`).
+
+4. Apply the forwarder:
+   - **Logging 6.x:** `oc apply -f config/02-openshift-logging/clusterlogforwarder-external-loki.yaml`
+   - **Logging 5.x:** `oc apply -f config/02-openshift-logging/clusterlogforwarder-external-loki-logging5.yaml` (same Secret name; confirm key names for your release).
+
+**Connectivity:** The spoke must resolve and reach the hub gateway hostname (DNS, routes, firewall).
+
+**Makefile:** `make apply-hub-remote-log-writer` on the hub; on the spoke, after **`to-loki-secret`** and URL are set, `make deploy-logforwarder-external` runs `serviceaccount.sh` and applies the external ClusterLogForwarder.
 
 Verify collectors/forwarder pods:
 
@@ -294,7 +283,7 @@ The Cluster Observability Operator provides the **Logging UI plugin** (Observe �
 oc apply -f config/03-cluster-observability-operator/cluster-observability-operator-subscription.yaml
 ```
 
-This subscription uses `installPlanApproval: Automatic`; no manual approval is required.
+This subscription uses `installPlanApproval: Manual`; approve the InstallPlan when it appears (same idea as `make approve-logging` / `approve-installplan.sh` for other operators).
 
 ### 3.2 Wait for the operator
 
@@ -338,8 +327,8 @@ From the repository root. **OCP 4.20.**
 `make install-loki approve-loki deploy-lokistack install-logging approve-logging deploy-logforwarder install-coo deploy-uiplugin`
 
 **External (Loki on hub):**  
-- On the **hub**: `make install-loki approve-loki deploy-lokistack`, then `make apply-hub-remote-log-writer` (SA **`remote-log-writer`** + write roles). Mint token and export CA per **Step 1b**. Optionally `install-coo deploy-uiplugin` for Observe → Logs on the hub.  
-- On the **spoke**: `make install-logging approve-logging`, create **`to-loki-secret`** (Step 1b), set the hub URL in `clusterlogforwarder-external-loki.yaml`, then `make deploy-logforwarder-external`.
+- On the **hub**: `make install-loki approve-loki deploy-lokistack`, then **§2.4.2 (On the hub)** (`make apply-hub-remote-log-writer`, token, CA, push URL). Optionally `install-coo deploy-uiplugin` for Observe → Logs on the hub.  
+- On the **spoke**: `make install-logging approve-logging`, then **§2.4.2 (On the spoke)** (`to-loki-secret`, hub URL in the manifest, apply forwarder or `make deploy-logforwarder-external`).
 
 ---
 
