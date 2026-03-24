@@ -135,6 +135,25 @@ oc apply -f config/01-loki-operator/loki-operator-subscription.yaml
 
 Wait briefly, confirm **`ResolutionFailed`** is cleared, then **`oc get installplan -n openshift-operators-redhat`** and **`make approve-loki`**.
 
+If **`ResolutionFailed`** remains with **one** OperatorGroup, inspect the full condition **`message`**. For other causes (stuck CSV, catalog), use:
+
+```bash
+oc get subscriptions.operators.coreos.com loki-operator -n openshift-operators-redhat \
+  -o jsonpath='{range .status.conditions[*]}{.type}{"\t"}{.status}{"\t"}{.reason}{"\t"}{.message}{"\n"}{end}'
+```
+
+### 1.3c `ResolutionFailed`: no operators in channel `stable`
+
+If the **`message`** contains **`no operators found in channel stable of package loki-operator`** (reason **`ConstraintsNotSatisfiable`**), **`redhat-operators`** does not ship **`loki-operator`** on the legacy **`stable`** channel anymore. Use a **Logging 6.x** channel such as **`stable-6.4`** (see [Red Hat OpenShift Logging 6.4 — Installing logging](https://docs.redhat.com/en/documentation/red_hat_openshift_logging/6.4/html-single/installing_logging/index)); this repository’s **`loki-operator-subscription.yaml`** is set accordingly.
+
+List channels the API exposes for **`loki-operator`** (several catalogs can share the name — confirm **Red Hat Operators**):
+
+```bash
+oc describe packagemanifest loki-operator -n openshift-marketplace | grep -E 'Catalog|Channel|Entry'
+```
+
+Then re-apply the subscription (or **`oc patch subscriptions.operators.coreos.com loki-operator -n openshift-operators-redhat --type=merge -p '{"spec":{"channel":"stable-6.4"}}'`** if the file already matches).
+
 ### 1.4 Deploy a LokiStack instance (ODF storage)
 
 On the same cluster where you installed the Loki Operator (spoke for internal, hub for external), deploy the LokiStack using **ODF**:
