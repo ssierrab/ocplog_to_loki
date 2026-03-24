@@ -1,3 +1,4 @@
 # Do not commit real secrets
 config/02-openshift-logging/secret-external-loki.yaml
+config/02-openshift-logging/secret-external-loki-bearer.yaml
 config/02-openshift-logging/secret-lokistack-bearer.yaml

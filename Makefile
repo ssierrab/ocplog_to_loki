@@ -54,11 +54,14 @@ deploy-logforwarder:
 	bash $(SCRIPTS_DIR)/create-lokistack-bearer-secret.sh
 	oc apply -f $(CONFIG_DIR)/02-openshift-logging/clusterlogforwarder.yaml
 
-# External Loki: edit clusterlogforwarder-external-loki.yaml URL (and secret) first, then run.
-# Uses observability.openshift.io (Logging 6.x). For Logging 5.x use:
-#   oc apply -f $(CONFIG_DIR)/02-openshift-logging/clusterlogforwarder-external-loki-logging5.yaml
+# External Loki: create Secret loki-external-bearer-token (key token) first; edit URL in YAML.
+# Optional: EXTERNAL_LOKI_BEARER_TOKEN=... make deploy-logforwarder-external (creates/updates secret).
+# Logging 5.x: oc apply -f $(CONFIG_DIR)/02-openshift-logging/clusterlogforwarder-external-loki-logging5.yaml
 deploy-logforwarder-external:
 	bash $(CONFIG_DIR)/02-openshift-logging/serviceaccount.sh
+	@if [ -n "$$EXTERNAL_LOKI_BEARER_TOKEN" ]; then \
+		$(SCRIPTS_DIR)/create-external-loki-bearer-secret.sh; \
+	fi
 	oc apply -f $(CONFIG_DIR)/02-openshift-logging/clusterlogforwarder-external-loki.yaml
 
 # --- Cluster Observability Operator ---

@@ -131,14 +131,16 @@ oc get pods -n openshift-logging | grep loki
    ```bash
    bash config/02-openshift-logging/serviceaccount.sh
    ```
-3. Create a secret for your external Loki (TLS/client auth). Copy the example and set your URL:
+3. Create a **Bearer token Secret** on the spoke (`loki-external-bearer-token`, key **`token`**). The token must be one the **hub** Loki gateway accepts (for example create a token on the hub: `oc create token <sa> -n openshift-logging --duration=…` for a service account allowed to push logs).
    ```bash
-   cp config/02-openshift-logging/secret-external-loki.example.yaml config/02-openshift-logging/secret-external-loki.yaml
-   # Edit secret-external-loki.yaml and set tls.crt, tls.key, ca-bundle.crt if needed
-   oc apply -f config/02-openshift-logging/secret-external-loki.yaml
+   EXTERNAL_LOKI_BEARER_TOKEN='…' ./scripts/create-external-loki-bearer-secret.sh
    ```
-4. Edit `config/02-openshift-logging/clusterlogforwarder-external-loki.yaml` and set `spec.outputs[0].url` to the **hub’s** Loki push URL (e.g. `https://<loki-gateway-on-hub>:443/loki/api/v1/push`). Use the Loki gateway route or ingress hostname on the hub. If your Loki does not require client certs, you can remove the `secret` reference or use a secret with only `ca-bundle.crt` for server verification.
-5. Apply the external ClusterLogForwarder:
+   Or copy `config/02-openshift-logging/secret-external-loki-bearer.example.yaml`, set `token`, and apply. See example file for details.
+4. Edit the external ClusterLogForwarder manifest and set the **hub** Loki push URL:
+   - **Logging 6.x:** `config/02-openshift-logging/clusterlogforwarder-external-loki.yaml` → `spec.outputs[0].loki.url`
+   - Adjust **`spec.outputs[0].tls`** if the hub gateway TLS is **not** signed by a CA the spoke already trusts (replace `openshift-service-ca.crt` with a ConfigMap that holds the hub’s CA, or use your cluster’s trust bundle).
+5. Optional **mTLS / custom client cert** for the Loki HTTPS client is separate from the bearer token; use `secret-external-loki.example.yaml` only if your version supports referencing extra TLS material (see your OpenShift Logging release docs).
+6. Apply the external ClusterLogForwarder:
    - **Logging 6.x** (observability API): `oc apply -f config/02-openshift-logging/clusterlogforwarder-external-loki.yaml`
    - **Logging 5.x** (OCP 4.20 default): `oc apply -f config/02-openshift-logging/clusterlogforwarder-external-loki-logging5.yaml`
 
@@ -260,7 +262,7 @@ From the repository root. **OCP 4.20.**
 | `make install-logging-v6` | Same with Logging 6.x subscription |
 | `make approve-logging` | Approve pending InstallPlans in openshift-logging |
 | `make deploy-logforwarder` | SA + `loki-stack-bearer-token` Secret + ClusterLogForwarder (Logging 6.x, token from Secret) |
-| `make deploy-logforwarder-external` | ClusterLogForwarder to **external** Loki URL (edit URL/secret first) |
+| `make deploy-logforwarder-external` | SA + apply external Loki ClusterLogForwarder (create **`loki-external-bearer-token`** first; optional `EXTERNAL_LOKI_BEARER_TOKEN=…` for scripted secret) |
 | `make install-coo` | Apply Cluster Observability Operator subscription |
 | `make deploy-uiplugin` | Apply UIPlugin for Observe → Logs |
 | `make verify` | Print status of operators and key resources |
@@ -270,7 +272,7 @@ From the repository root. **OCP 4.20.**
 
 **External (Loki on hub):**  
 - On the **hub**: `make install-loki approve-loki deploy-lokistack` (optionally `install-coo deploy-uiplugin` for Observe → Logs on the hub).  
-- On the **spoke**: `make install-logging approve-logging`, then create secret, set the hub Loki URL in `clusterlogforwarder-external-loki.yaml`, and `make deploy-logforwarder-external`.
+- On the **spoke**: `make install-logging approve-logging`, create **`loki-external-bearer-token`** (Step 1b), set the hub URL in `clusterlogforwarder-external-loki.yaml`, then `make deploy-logforwarder-external`.
 
 ---
 
@@ -282,12 +284,13 @@ ocplog_to_loki/
 ├── Makefile                  # Targets for apply and verify
 ├── config/
 │   ├── 01-loki-operator/     # Namespaces, loki-operator OperatorGroup, subscription, LokiStack, OBC
-│   ├── 02-openshift-logging/ # Namespace, cluster-logging OperatorGroup, subscription, ClusterLogForwarder, SA, secret example
+│   ├── 02-openshift-logging/ # … ClusterLogForwarder, SA, external/internal bearer secret examples
 │   └── 03-cluster-observability-operator/ # COO subscription, UIPlugin
 └── scripts/
-    ├── approve-installplan.sh           # Approve InstallPlans in a namespace
-    ├── create-loki-odf-secret.sh        # Loki ODF storage secret from ObjectBucketClaim
-    └── create-lokistack-bearer-secret.sh # Bearer token Secret for LokiStack (internal forwarder)
+    ├── approve-installplan.sh              # Approve InstallPlans in a namespace
+    ├── create-loki-odf-secret.sh           # Loki ODF storage secret from ObjectBucketClaim
+    ├── create-lokistack-bearer-secret.sh   # Bearer token Secret for in-cluster LokiStack
+    └── create-external-loki-bearer-secret.sh # Bearer token Secret for hub Loki (spoke)
 ```
 
 ---
