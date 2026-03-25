@@ -1,5 +1,11 @@
 # OpenShift Logging with Loki – apply configs and verify
 # Run from repository root with oc logged in.
+#
+# Loki + cluster-logging must share the same OLM channel (stable-6.y).
+#   make install-loki OPERATOR_CHANNEL=stable-6.5
+# If OPERATOR_CHANNEL is unset, install-loki / install-logging use scripts/render-operator-channel.sh:
+#   cluster defaultChannel for loki-operator, else stable-6.4.
+#   make show-operator-channel  — print the channel that would be used (requires oc login).
 
 CONFIG_DIR := config
 SCRIPTS_DIR := scripts
@@ -11,7 +17,7 @@ LOKI_DIR := $(CONFIG_DIR)/01-loki-operator
 install-loki:
 	oc apply -f $(LOKI_DIR)/openshift-operators-redhat-namespace.yaml
 	oc apply -f $(LOKI_DIR)/openshift-logging-namespace.yaml
-	oc apply -f $(LOKI_DIR)/loki-operator-subscription.yaml
+	bash $(SCRIPTS_DIR)/render-operator-channel.sh $(LOKI_DIR)/loki-operator-subscription.yaml | oc apply -f -
 
 # Only if: oc get operatorgroup -n openshift-operators-redhat → No resources found
 install-loki-operatorgroup:
@@ -40,12 +46,19 @@ LOGGING_DIR := $(CONFIG_DIR)/02-openshift-logging
 install-logging:
 	oc apply -f $(LOGGING_DIR)/openshift-logging-namespace.yaml
 	oc apply -f $(LOGGING_DIR)/openshift-logging-operatorgroup.yaml
-	oc apply -f $(LOGGING_DIR)/openshift-logging-operator-subscription.yaml
+	bash $(SCRIPTS_DIR)/render-operator-channel.sh $(LOGGING_DIR)/openshift-logging-operator-subscription.yaml | oc apply -f -
 
 install-logging-v6:
 	oc apply -f $(LOGGING_DIR)/openshift-logging-namespace.yaml
 	oc apply -f $(LOGGING_DIR)/openshift-logging-operatorgroup.yaml
-	oc apply -f $(LOGGING_DIR)/logging-v6-subscription.yaml
+	bash $(SCRIPTS_DIR)/render-operator-channel.sh $(LOGGING_DIR)/logging-v6-subscription.yaml | oc apply -f -
+
+# Print channel: explicit OPERATOR_CHANNEL, else packagemanifest defaultChannel, else stable-6.4
+show-operator-channel:
+	@OPERATOR_CHANNEL="$${OPERATOR_CHANNEL:-}"; \
+	if [ -n "$$OPERATOR_CHANNEL" ]; then echo "$$OPERATOR_CHANNEL"; exit 0; fi; \
+	CH=$$(oc get packagemanifest loki-operator -n openshift-marketplace -o jsonpath='{.status.defaultChannel}' 2>/dev/null || true); \
+	if [ -n "$$CH" ]; then echo "$$CH"; else echo stable-6.4; fi
 
 approve-logging:
 	@echo "Approving InstallPlans in openshift-logging..."
@@ -93,5 +106,5 @@ verify:
 	@oc get uiplugin 2>/dev/null || true
 
 .PHONY: install-loki install-loki-operatorgroup approve-loki deploy-lokistack deploy-loki-obc deploy-loki-secret deploy-lokistack-cr \
-	install-logging install-logging-v6 approve-logging deploy-logforwarder deploy-logforwarder-external \
+	install-logging install-logging-v6 show-operator-channel approve-logging deploy-logforwarder deploy-logforwarder-external \
 	apply-hub-remote-log-writer install-coo deploy-uiplugin verify

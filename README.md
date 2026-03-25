@@ -33,6 +33,8 @@ This guide supports **hub-and-spoke** topologies: Loki can run on the same clust
 - **ODF** on the cluster where Loki runs (hub for external, spoke for internal) for LokiStack storage (ObjectBucketClaim).  
 - **External only**: The spoke must reach the hub’s Loki push endpoint (HTTPS recommended; network/ingress and optional TLS auth).
 
+**Operator channel:** Loki and **cluster-logging** subscription manifests use placeholder **`__OPERATOR_CHANNEL__`**. Always apply them through **`make install-loki`** / **`make install-logging`** (or pipe the file through **`scripts/render-operator-channel.sh`**). Applying those YAML files directly with **`oc apply -f`** without substitution will send an invalid channel name to OLM.
+
 ## Installation order (by scenario)
 
 **Internal (Loki on spoke):**  
@@ -71,13 +73,15 @@ make install-loki-operatorgroup
 make install-loki
 ```
 
-**Using oc apply** (namespaces, then subscription — skip OperatorGroup unless none exists):
+**Using oc apply** (namespaces, then subscription — skip OperatorGroup unless none exists). Subscription YAML uses placeholder `__OPERATOR_CHANNEL__`; pipe through the render script (or set the channel and use `sed` yourself):
 
 ```bash
 oc apply -f config/01-loki-operator/openshift-operators-redhat-namespace.yaml
 oc apply -f config/01-loki-operator/openshift-logging-namespace.yaml
-oc apply -f config/01-loki-operator/loki-operator-subscription.yaml
+./scripts/render-operator-channel.sh config/01-loki-operator/loki-operator-subscription.yaml | oc apply -f -
 ```
+
+Optional: `OPERATOR_CHANNEL=stable-6.5 ./scripts/render-operator-channel.sh …` to pin a channel. `make show-operator-channel` prints the channel the Makefile would use (from your env or from `oc get packagemanifest loki-operator`, else `stable-6.4`).
 
 ### 1.2 Approve the InstallPlan
 
@@ -144,15 +148,15 @@ All Logging-related resources (namespace, **cluster-logging** OperatorGroup, sub
 make install-logging
 ```
 
-**Using oc apply** (namespace and OperatorGroup first, then subscription):
+**Using oc apply** (namespace and OperatorGroup first, then subscription — same channel resolution as Loki):
 
 ```bash
 oc apply -f config/02-openshift-logging/openshift-logging-namespace.yaml
 oc apply -f config/02-openshift-logging/openshift-logging-operatorgroup.yaml
-oc apply -f config/02-openshift-logging/openshift-logging-operator-subscription.yaml
+./scripts/render-operator-channel.sh config/02-openshift-logging/openshift-logging-operator-subscription.yaml | oc apply -f -
 ```
 
-Both **`openshift-logging-operator-subscription.yaml`** and **`logging-v6-subscription.yaml`** install **cluster-logging** on channel **`stable-6.4`** (same choices as the console: **stable-6.4**, **stable-6.3**, **stable-6.2**, …). Keep the **same minor** as **Loki** (this repo uses **stable-6.4** for both). To use another minor, edit **`spec.channel`** in the subscription YAML or patch the live Subscription. Use **`logging-v6-subscription.yaml`** only if you prefer that filename (for example **`make install-logging-v6`**); do not apply both files to the same namespace.
+Both **`openshift-logging-operator-subscription.yaml`** and **`logging-v6-subscription.yaml`** install **cluster-logging** on the **same channel as the Loki Operator** (OLM exposes per-minor channels such as **stable-6.4**, **stable-6.3**, … — verify with `oc get packagemanifest cluster-logging -n openshift-marketplace -o yaml`). This repo does **not** hardcode a minor in Git: **`make install-loki`**, **`make install-logging`**, and **`make install-logging-v6`** run **`scripts/render-operator-channel.sh`**, which sets **`spec.channel`** from **`OPERATOR_CHANNEL`** (if set), else **`loki-operator`**’s **`defaultChannel`** on the cluster, else **`stable-6.4`**. Keep Loki and cluster-logging on matching **stable-6.*** channels per Red Hat guidance. Use **`logging-v6-subscription.yaml`** only if you prefer that filename (**`make install-logging-v6`**); do not apply both subscription files to the same namespace.
 
 ### 2.2 Approve the InstallPlan
 
@@ -428,12 +432,13 @@ From the repository root. **OCP 4.20.**
 
 | Target | Description |
 |--------|-------------|
-| `make install-loki` | Namespaces + Loki Operator subscription (does **not** add an OperatorGroup — see 1.1) |
+| `make install-loki` | Namespaces + Loki Operator subscription (channel via **`render-operator-channel.sh`**; does **not** add an OperatorGroup — see 1.1) |
 | `make install-loki-operatorgroup` | Optional: apply `openshift-operators-redhat-operatorgroup.yaml` only if the namespace has **no** OperatorGroup |
 | `make approve-loki` | Approve pending InstallPlans in openshift-operators-redhat |
 | `make deploy-lokistack` | ODF: ObjectBucketClaim + secret script + LokiStack |
-| `make install-logging` | Namespace, **cluster-logging** OperatorGroup, OpenShift Logging subscription (**stable-6.4**) |
-| `make install-logging-v6` | Same channel via **`logging-v6-subscription.yaml`** (pick **`install-logging` *or* this, not both) |
+| `make install-logging` | Namespace, **cluster-logging** OperatorGroup, OpenShift Logging subscription (channel via **`render-operator-channel.sh`**) |
+| `make install-logging-v6` | Same as above via **`logging-v6-subscription.yaml`** (pick **`install-logging` *or* this, not both) |
+| `make show-operator-channel` | Print channel used for Loki + logging subs (`OPERATOR_CHANNEL` or packagemanifest / fallback) |
 | `make approve-logging` | Approve pending InstallPlans in openshift-logging |
 | `make deploy-logforwarder` | SA + `loki-stack-bearer-token` Secret + ClusterLogForwarder (Logging 6.x, token from Secret) |
 | `make apply-hub-remote-log-writer` | **Hub:** SA `remote-log-writer` + ClusterRoleBindings for Loki gateway write |

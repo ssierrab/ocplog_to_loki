@@ -1,12 +1,12 @@
-# OCP 4.20 – Red Hat OpenShift Logging Operator (channel must exist on redhat-operators; UI shows stable-6.4, stable-6.3, …).
-# Use the same minor as Loki (e.g. stable-6.4 with loki-operator stable-6.4). Legacy channel "stable" is not offered for cluster-logging.
+# OCP 4.20 – Red Hat OpenShift Logging Operator — channel must exist on redhat-operators and match Loki (__OPERATOR_CHANNEL__).
+# Replaced by make or scripts/render-operator-channel.sh (see README).
 apiVersion: operators.coreos.com/v1alpha1
 kind: Subscription
 metadata:
   name: cluster-logging
   namespace: openshift-logging
 spec:
-  channel: stable-6.4
+  channel: __OPERATOR_CHANNEL__
   installPlanApproval: Manual
   name: cluster-logging
   source: redhat-operators

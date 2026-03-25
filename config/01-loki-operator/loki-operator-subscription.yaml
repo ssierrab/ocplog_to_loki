@@ -1,13 +1,13 @@
 # OCP 4.20 – Loki Operator (internal LokiStack with ODF)
-# Channel must exist on redhat-operators (see: oc get packagemanifest loki-operator -n openshift-marketplace).
-# Red Hat OpenShift Logging 6.4 docs use stable-6.<y>, e.g. stable-6.4 — not the legacy "stable" channel.
+# Placeholder __OPERATOR_CHANNEL__ is replaced by make or scripts/render-operator-channel.sh (env OPERATOR_CHANNEL or packagemanifest defaultChannel; fallback stable-6.4).
+# Use the same channel as cluster-logging (stable-6.y). Legacy "stable" is often absent for these packages.
 apiVersion: operators.coreos.com/v1alpha1
 kind: Subscription
 metadata:
   name: loki-operator
   namespace: openshift-operators-redhat
 spec:
-  channel: stable-6.4
+  channel: __OPERATOR_CHANNEL__
   installPlanApproval: Manual
   name: loki-operator
   source: redhat-operators
