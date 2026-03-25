@@ -1,11 +1,9 @@
 # OpenShift Logging with Loki – apply configs and verify
 # Run from repository root with oc logged in.
 #
-# Loki + cluster-logging must share the same OLM channel (stable-6.y).
-#   make install-loki OPERATOR_CHANNEL=stable-6.5
-# If OPERATOR_CHANNEL is unset, install-loki / install-logging use scripts/render-operator-channel.sh:
-#   cluster defaultChannel for loki-operator, else stable-6.4.
-#   make show-operator-channel  — print the channel that would be used (requires oc login).
+# Loki + cluster-logging share one OLM channel (stable-6.y). install-loki / install-logging
+# prompt for the channel unless OPERATOR_CHANNEL is set:
+#   make install-loki OPERATOR_CHANNEL=stable-6.4
 
 CONFIG_DIR := config
 SCRIPTS_DIR := scripts
@@ -53,13 +51,6 @@ install-logging-v6:
 	oc apply -f $(LOGGING_DIR)/openshift-logging-operatorgroup.yaml
 	bash $(SCRIPTS_DIR)/render-operator-channel.sh $(LOGGING_DIR)/logging-v6-subscription.yaml | oc apply -f -
 
-# Print channel: explicit OPERATOR_CHANNEL, else packagemanifest defaultChannel, else stable-6.4
-show-operator-channel:
-	@OPERATOR_CHANNEL="$${OPERATOR_CHANNEL:-}"; \
-	if [ -n "$$OPERATOR_CHANNEL" ]; then echo "$$OPERATOR_CHANNEL"; exit 0; fi; \
-	CH=$$(oc get packagemanifest loki-operator -n openshift-marketplace -o jsonpath='{.status.defaultChannel}' 2>/dev/null || true); \
-	if [ -n "$$CH" ]; then echo "$$CH"; else echo stable-6.4; fi
-
 approve-logging:
 	@echo "Approving InstallPlans in openshift-logging..."
 	@for ip in $$(oc get installplan -o name -n openshift-logging 2>/dev/null || true); do \
@@ -106,5 +97,5 @@ verify:
 	@oc get uiplugin 2>/dev/null || true
 
 .PHONY: install-loki install-loki-operatorgroup approve-loki deploy-lokistack deploy-loki-obc deploy-loki-secret deploy-lokistack-cr \
-	install-logging install-logging-v6 show-operator-channel approve-logging deploy-logforwarder deploy-logforwarder-external \
+	install-logging install-logging-v6 approve-logging deploy-logforwarder deploy-logforwarder-external \
 	apply-hub-remote-log-writer install-coo deploy-uiplugin verify

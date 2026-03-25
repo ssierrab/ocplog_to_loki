@@ -1,5 +1,5 @@
 # OCP 4.20 – Loki Operator (internal LokiStack with ODF)
-# Placeholder __OPERATOR_CHANNEL__ is replaced by make or scripts/render-operator-channel.sh (env OPERATOR_CHANNEL or packagemanifest defaultChannel; fallback stable-6.4).
+# Placeholder __OPERATOR_CHANNEL__ is replaced by make or scripts/render-operator-channel.sh (prompt or OPERATOR_CHANNEL env — see README).
 # Use the same channel as cluster-logging (stable-6.y). Legacy "stable" is often absent for these packages.
 apiVersion: operators.coreos.com/v1alpha1
 kind: Subscription
